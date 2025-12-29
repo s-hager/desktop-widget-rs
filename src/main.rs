@@ -1,49 +1,37 @@
-use iced::widget::{button, column, text, Column};
-// use iced::{Element, Task};
+use iced::daemon;
+use iced::{Subscription, time};
+use std::time::Duration;
+use tray_icon::{TrayIconEvent, menu::MenuEvent};
 
-#[test]
-fn it_counts_properly() {
-    let mut counter = Counter::default();
+mod app;
+mod config;
+mod stock;
+mod components;
 
-    counter.update(Message::Increment);
-    counter.update(Message::Increment);
-    counter.update(Message::Decrement);
-
-    assert_eq!(counter.value, 1);
-}
+use app::{App, Message};
 
 pub fn main() -> iced::Result {
-    iced::run(Counter::update, Counter::view)
+    iced::daemon(App::new, App::update, App::view)
+        .title(App::title)
+        .subscription(subscription)
+        .theme(App::theme)
+        .run()
 }
 
-#[derive(Default)]
-struct Counter {
-    value: i64,
-}
-
-#[derive(Clone)]
-enum Message {
-    Increment,
-    Decrement,
-}
-
-impl Counter {
-    fn update(&mut self, message: Message) {
-        match message {
-            Message::Increment => {
-                self.value += 1;
-            } 
-            Message::Decrement => {
-                self.value -= 1;
-            } 
+fn subscription(_app: &App) -> Subscription<Message> {
+    let fast_tick = time::every(Duration::from_millis(200)).map(|_| Message::UnusedTick);
+    let slow_tick = time::every(Duration::from_secs(60)).map(|_| Message::Tick);
+    
+    // We poll events every 200ms
+    let event_poller = time::every(Duration::from_millis(200)).map(|_| {
+        if let Ok(event) = TrayIconEvent::receiver().try_recv() {
+             return Message::TrayEvent(event);
         }
-    }
+        if let Ok(event) = MenuEvent::receiver().try_recv() {
+             return Message::MenuEvent(event);
+        }
+        Message::None
+    });
 
-    fn view(&self) -> Column<'_, Message> {        
-        column![
-            button("+").on_press(Message::Increment),
-            text(self.value),
-            button("-").on_press(Message::Decrement),
-        ]
-    }
+    Subscription::batch(vec![slow_tick, event_poller])
 }
