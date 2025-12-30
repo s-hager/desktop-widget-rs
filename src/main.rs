@@ -152,6 +152,14 @@ impl ApplicationHandler<UserEvent> for App {
                                 "EUR" => "€",
                                 "GBP" => "£",
                                 "JPY" => "¥",
+                                "CHF" => "₣",
+                                "CNY" => "¥",
+                                "KRW" => "₩",
+                                "TND" => "دج",
+                                "EGP" => "جنيه",
+                                "RMB" => "¥",
+                                "ZAR" => "ریال",
+                                "INR" => "₹",
                                 _ => &self.currency,
                             };
 
@@ -160,17 +168,32 @@ impl ApplicationHandler<UserEvent> for App {
                                 let root = BitMapBackend::with_buffer(&mut pixel_buffer[..], (width, height)).into_drawing_area();
                                 root.fill(&TRANSPARENT).unwrap(); 
                                 
-                                // Draw Text manually at top-left
+                                // Dynamic Layout
+                                let font = ("sans-serif", 30).into_font();
+                                let padding = 20;
+                                let mut current_x = 20;
+
                                 // "AAPL"
-                                root.draw_text("AAPL", &("sans-serif", 30).into_font().color(&WHITE), (20, 20)).unwrap();
+                                root.draw_text("AAPL", &font.clone().color(&WHITE), (current_x, 20)).unwrap();
+                                let (w, _) = font.box_size("AAPL").unwrap();
+                                current_x += w as i32 + padding;
                                 
                                 // Price
                                 let price_text = format!("{}{:.2}", symbol, last_price);
-                                root.draw_text(&price_text, &("sans-serif", 30).into_font().color(&WHITE), (120, 20)).unwrap();
+                                root.draw_text(&price_text, &font.clone().color(&WHITE), (current_x, 20)).unwrap();
+                                let (w, _) = font.box_size(&price_text).unwrap();
+                                current_x += w as i32 + padding;
 
                                 // Change
                                 let change_text = format!("{}{:.2} ({}{:.2}%)", sign, diff, sign, percent_change);
-                                root.draw_text(&change_text, &("sans-serif", 30).into_font().color(color), (260, 20)).unwrap();
+                                root.draw_text(&change_text, &font.clone().color(color), (current_x, 20)).unwrap();
+                                let (w, _) = font.box_size(&change_text).unwrap();
+                                current_x += w as i32 + padding;
+
+                                // Update Window Min Size
+                                let min_width = current_x as u32;
+                                let min_height = 300; // Ensure enough vertical space
+                                window.set_min_inner_size(Some(winit::dpi::LogicalSize::new(min_width as f64, min_height as f64)));
 
                                 // wait, plotters BitMapBackend doesn't support alpha well usually unless RGBA?
                                 // BitMapBackend is RGB usually.
