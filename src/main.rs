@@ -10,6 +10,8 @@ use yahoo_finance_api as yahoo;
 use chrono::{DateTime, Utc, TimeZone};
 use plotters::prelude::*;
 use plotters::backend::BitMapBackend;
+use tray_icon::{TrayIcon, TrayIconBuilder, Icon};
+use winit::platform::windows::WindowAttributesExtWindows;
 
 #[derive(Debug)]
 enum UserEvent {
@@ -23,6 +25,7 @@ struct App {
     context: Option<Context<Rc<Window>>>,
     proxy: EventLoopProxy<UserEvent>,
     quotes: Option<Vec<yahoo::Quote>>,
+    tray_icon: Option<TrayIcon>,
 }
 
 impl ApplicationHandler<UserEvent> for App {
@@ -30,7 +33,8 @@ impl ApplicationHandler<UserEvent> for App {
         let window_attributes = Window::default_attributes()
             .with_title("Acrylic Stock Chart")
             .with_transparent(true)
-            .with_decorations(true);
+            .with_decorations(true)
+            .with_skip_taskbar(true); // Hide from taskbar
 
         let window = Rc::new(event_loop.create_window(window_attributes).unwrap());
         
@@ -38,6 +42,16 @@ impl ApplicationHandler<UserEvent> for App {
         if let Err(err) = apply_acrylic(&window, Some((18, 18, 18, 125))) {
              eprintln!("Failed to apply acrylic: {}", err);
         }
+
+        // Initialize Tray Icon
+        let icon_rgba = vec![255u8; 32 * 32 * 4]; // White icon
+        let icon = Icon::from_rgba(icon_rgba, 32, 32).unwrap();
+        let tray_icon = TrayIconBuilder::new()
+            .with_icon(icon)
+            .with_tooltip("Stock Widget")
+            .build()
+            .unwrap();
+        self.tray_icon = Some(tray_icon);
 
         let context = Context::new(window.clone()).unwrap();
         let mut surface = Surface::new(&context, window.clone()).unwrap();
@@ -113,7 +127,11 @@ impl ApplicationHandler<UserEvent> for App {
                             let mut pixel_buffer = vec![0u8; (width * height * 3) as usize];
                             {
                                 let root = BitMapBackend::with_buffer(&mut pixel_buffer[..], (width, height)).into_drawing_area();
-                                root.fill(&TRANSPARENT).unwrap(); // plotters transparent? 
+                                root.fill(&TRANSPARENT).unwrap(); 
+                                
+                                // Draw Text manually at top-left
+                                root.draw_text("AAPL", &("sans-serif", 30).into_font().color(&WHITE), (20, 20)).unwrap();
+
                                 // wait, plotters BitMapBackend doesn't support alpha well usually unless RGBA?
                                 // BitMapBackend is RGB usually.
                                 // Let's try drawing with a dark background matching acrylic tint?
@@ -132,7 +150,7 @@ impl ApplicationHandler<UserEvent> for App {
                             // Label
                                 let mut chart = ChartBuilder::on(&root)
                                     .margin(10)
-                                    .caption("AAPL", ("sans-serif", 30).into_font().color(&WHITE))
+                                    // .caption("AAPL", ("sans-serif", 30).into_font().color(&WHITE)) // Removed caption
                                     .set_label_area_size(LabelAreaPosition::Left, 40)
                                     .set_label_area_size(LabelAreaPosition::Bottom, 40)
                                     .build_cartesian_2d(start_date..end_date, min_price..max_price)
@@ -210,7 +228,8 @@ fn main() {
         surface: None, 
         context: None, 
         proxy,
-        quotes: None 
+        quotes: None,
+        tray_icon: None
     };
     
     event_loop.run_app(&mut app).unwrap();
