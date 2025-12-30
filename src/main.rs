@@ -16,7 +16,7 @@ use winit::platform::windows::WindowAttributesExtWindows;
 
 #[derive(Debug)]
 enum UserEvent {
-    DataLoaded(Vec<yahoo::Quote>),
+    DataLoaded(Vec<yahoo::Quote>, String), // Quotes + Currency
     Error(String),
 }
 
@@ -26,6 +26,7 @@ struct App {
     context: Option<Context<Rc<Window>>>,
     proxy: EventLoopProxy<UserEvent>,
     quotes: Option<Vec<yahoo::Quote>>,
+    currency: String,
     tray_icon: Option<TrayIcon>,
     tray_menu: Option<Menu>, // Keep menu alive
 }
@@ -83,8 +84,9 @@ impl ApplicationHandler<UserEvent> for App {
                 let provider = yahoo::YahooConnector::new().unwrap();
                 match provider.get_quote_range("AAPL", "1d", "1mo").await {
                     Ok(response) => {
+                         let currency = response.metadata().ok().and_then(|m| m.currency.clone()).unwrap_or("USD".to_string());
                          if let Ok(quotes) = response.quotes() {
-                             let _ = proxy.send_event(UserEvent::DataLoaded(quotes));
+                             let _ = proxy.send_event(UserEvent::DataLoaded(quotes, currency));
                          } else {
                              let _ = proxy.send_event(UserEvent::Error("No quotes found".into()));
                          }
@@ -145,6 +147,14 @@ impl ApplicationHandler<UserEvent> for App {
                             let color = if diff >= 0.0 { &GREEN } else { &RED };
                             let sign = if diff >= 0.0 { "+" } else { "" };
 
+                            let symbol = match self.currency.as_str() {
+                                "USD" => "$",
+                                "EUR" => "€",
+                                "GBP" => "£",
+                                "JPY" => "¥",
+                                _ => &self.currency,
+                            };
+
                             let mut pixel_buffer = vec![0u8; (width * height * 3) as usize];
                             {
                                 let root = BitMapBackend::with_buffer(&mut pixel_buffer[..], (width, height)).into_drawing_area();
@@ -155,16 +165,15 @@ impl ApplicationHandler<UserEvent> for App {
                                 root.draw_text("AAPL", &("sans-serif", 30).into_font().color(&WHITE), (20, 20)).unwrap();
                                 
                                 // Price
-                                let price_text = format!("{:.2}", last_price);
+                                let price_text = format!("{}{:.2}", symbol, last_price);
                                 root.draw_text(&price_text, &("sans-serif", 30).into_font().color(&WHITE), (120, 20)).unwrap();
 
                                 // Change
                                 let change_text = format!("{}{:.2} ({}{:.2}%)", sign, diff, sign, percent_change);
-                                root.draw_text(&change_text, &("sans-serif", 30).into_font().color(color), (240, 20)).unwrap();
+                                root.draw_text(&change_text, &("sans-serif", 30).into_font().color(color), (260, 20)).unwrap();
 
                                 // wait, plotters BitMapBackend doesn't support alpha well usually unless RGBA?
                                 // BitMapBackend is RGB usually.
-                                // Let's try drawing with a dark background matching acrylic tint?
                                 // If we fill with black, it will be black.
                                 // If we don't clean it, it's garbage.
                                 
@@ -175,6 +184,10 @@ impl ApplicationHandler<UserEvent> for App {
                                 
                                 let min_price = quotes.iter().map(|q| q.low).fold(f64::INFINITY, f64::min);
                                 let max_price = quotes.iter().map(|q| q.high).fold(f64::NEG_INFINITY, f64::max);
+
+                                // Determine precision
+                                let range = max_price - min_price;
+                                let use_decimals = range < 1.0 || max_price < 2.0;
 
                             // Label
                                 let mut chart = ChartBuilder::on(&root)
@@ -189,9 +202,16 @@ impl ApplicationHandler<UserEvent> for App {
                                 chart.configure_mesh()
                                     .axis_style(WHITE)
                                     .bold_line_style(WHITE.mix(0.3))
-                                    .light_line_style(WHITE.mix(0.1))
+                                    .light_line_style(TRANSPARENT) // Hide minor gridlines
                                     .label_style(("sans-serif", 15).into_font().color(&WHITE))
                                     .x_label_formatter(&|d| d.format("%b %e").to_string())
+                                    .y_label_formatter(&|y| {
+                                        if use_decimals {
+                                            format!("{:.2}", y)
+                                        } else {
+                                            format!("{:.0}", y)
+                                        }
+                                    })
                                     .draw().unwrap();
 
                                 chart.draw_series(
@@ -252,9 +272,10 @@ impl ApplicationHandler<UserEvent> for App {
 
     fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: UserEvent) {
         match event {
-            UserEvent::DataLoaded(new_quotes) => {
-                println!("Loaded {} quotes", new_quotes.len());
+            UserEvent::DataLoaded(new_quotes, currency) => {
+                println!("Loaded {} quotes, Currency: {}", new_quotes.len(), currency);
                 self.quotes = Some(new_quotes);
+                self.currency = currency;
                 if let Some(window) = &self.window {
                     window.request_redraw();
                 }
@@ -277,6 +298,7 @@ fn main() {
         context: None, 
         proxy,
         quotes: None,
+        currency: "USD".to_string(),
         tray_icon: None,
         tray_menu: None
     };
