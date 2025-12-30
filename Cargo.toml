@@ -7,4 +7,8 @@ edition = "2024"
 winit = "0.30"
 window-vibrancy = "0.7"
 softbuffer = "0.4"
+yahoo_finance_api = "2.3"
+tokio = { version = "1", features = ["full"] }
+plotters = "0.3"
+chrono = "0.4"
 
