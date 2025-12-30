@@ -27,6 +27,7 @@ struct App {
     proxy: EventLoopProxy<UserEvent>,
     quotes: Option<Vec<yahoo::Quote>>,
     currency: String,
+    symbol: String,
     tray_icon: Option<TrayIcon>,
     tray_menu: Option<Menu>, // Keep menu alive
 }
@@ -78,11 +79,12 @@ impl ApplicationHandler<UserEvent> for App {
 
         // Spawn fetching task
         let proxy = self.proxy.clone();
+        let symbol = self.symbol.clone();
         std::thread::spawn(move || {
             let rt = tokio::runtime::Runtime::new().unwrap();
             rt.block_on(async {
                 let provider = yahoo::YahooConnector::new().unwrap();
-                match provider.get_quote_range("AAPL", "1d", "1mo").await {
+                match provider.get_quote_range(&symbol, "1d", "1mo").await {
                     Ok(response) => {
                          let currency = response.metadata().ok().and_then(|m| m.currency.clone()).unwrap_or("USD".to_string());
                          if let Ok(quotes) = response.quotes() {
@@ -173,9 +175,9 @@ impl ApplicationHandler<UserEvent> for App {
                                 let padding = 20;
                                 let mut current_x = 20;
 
-                                // "AAPL"
-                                root.draw_text("AAPL", &font.clone().color(&WHITE), (current_x, 20)).unwrap();
-                                let (w, _) = font.box_size("AAPL").unwrap();
+                                // Symbol
+                                root.draw_text(&self.symbol, &font.clone().color(&WHITE), (current_x, 20)).unwrap();
+                                let (w, _) = font.box_size(&self.symbol).unwrap();
                                 current_x += w as i32 + padding;
                                 
                                 // Price
@@ -192,31 +194,26 @@ impl ApplicationHandler<UserEvent> for App {
 
                                 // Update Window Min Size
                                 let min_width = current_x as u32;
-                                let min_height = 300; // Ensure enough vertical space
+                                let min_height = 300; 
                                 window.set_min_inner_size(Some(winit::dpi::LogicalSize::new(min_width as f64, min_height as f64)));
 
-                                // wait, plotters BitMapBackend doesn't support alpha well usually unless RGBA?
-                                // BitMapBackend is RGB usually.
-                                // If we fill with black, it will be black.
-                                // If we don't clean it, it's garbage.
-                                
-                                // Let's use WHITE text/lines.
-                                
                                 let start_date = DateTime::from_timestamp(quotes.first().unwrap().timestamp as i64, 0).unwrap();
                                 let end_date = DateTime::from_timestamp(quotes.last().unwrap().timestamp as i64, 0).unwrap();
                                 
                                 let min_price = quotes.iter().map(|q| q.low).fold(f64::INFINITY, f64::min);
                                 let max_price = quotes.iter().map(|q| q.high).fold(f64::NEG_INFINITY, f64::max);
-
+                                
                                 // Determine precision
                                 let range = max_price - min_price;
                                 let use_decimals = range < 1.0 || max_price < 2.0;
+                                
+                                // Dynamic Labels
+                                let x_labels = (width / 120).max(2) as usize;
+                                let y_labels = (height / 60).max(2) as usize;
 
-                            // Label
                                 let mut chart = ChartBuilder::on(&root)
                                     .margin(10)
-                                    .margin_top(60) // Extra margin for label
-                                    // .caption("AAPL", ("sans-serif", 30).into_font().color(&WHITE)) // Removed caption
+                                    .margin_top(60) 
                                     .set_label_area_size(LabelAreaPosition::Left, 40)
                                     .set_label_area_size(LabelAreaPosition::Bottom, 40)
                                     .build_cartesian_2d(start_date..end_date, min_price..max_price)
@@ -225,8 +222,10 @@ impl ApplicationHandler<UserEvent> for App {
                                 chart.configure_mesh()
                                     .axis_style(WHITE)
                                     .bold_line_style(WHITE.mix(0.3))
-                                    .light_line_style(TRANSPARENT) // Hide minor gridlines
+                                    .light_line_style(TRANSPARENT)
                                     .label_style(("sans-serif", 15).into_font().color(&WHITE))
+                                    .x_labels(x_labels)
+                                    .y_labels(y_labels)
                                     .x_label_formatter(&|d| d.format("%b %e").to_string())
                                     .y_label_formatter(&|y| {
                                         if use_decimals {
@@ -322,6 +321,7 @@ fn main() {
         proxy,
         quotes: None,
         currency: "USD".to_string(),
+        symbol: "AAPL".to_string(),
         tray_icon: None,
         tray_menu: None
     };
