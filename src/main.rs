@@ -11,6 +11,7 @@ use chrono::{DateTime, Utc, TimeZone};
 use plotters::prelude::*;
 use plotters::backend::BitMapBackend;
 use tray_icon::{TrayIcon, TrayIconBuilder, Icon};
+use tray_icon::menu::{Menu, MenuItem, MenuEvent};
 use winit::platform::windows::WindowAttributesExtWindows;
 
 #[derive(Debug)]
@@ -26,6 +27,7 @@ struct App {
     proxy: EventLoopProxy<UserEvent>,
     quotes: Option<Vec<yahoo::Quote>>,
     tray_icon: Option<TrayIcon>,
+    tray_menu: Option<Menu>, // Keep menu alive
 }
 
 impl ApplicationHandler<UserEvent> for App {
@@ -43,15 +45,23 @@ impl ApplicationHandler<UserEvent> for App {
              eprintln!("Failed to apply acrylic: {}", err);
         }
 
+        // Initialize Tray Menu
+        let tray_menu = Menu::new();
+        let quit_i = MenuItem::new("Quit", true, None);
+        tray_menu.append(&quit_i).unwrap();
+
         // Initialize Tray Icon
         let icon_rgba = vec![255u8; 32 * 32 * 4]; // White icon
         let icon = Icon::from_rgba(icon_rgba, 32, 32).unwrap();
         let tray_icon = TrayIconBuilder::new()
+            .with_menu(Box::new(tray_menu.clone()))
             .with_icon(icon)
             .with_tooltip("Stock Widget")
             .build()
             .unwrap();
+        
         self.tray_icon = Some(tray_icon);
+        self.tray_menu = Some(tray_menu);
 
         let context = Context::new(window.clone()).unwrap();
         let mut surface = Surface::new(&context, window.clone()).unwrap();
@@ -150,6 +160,7 @@ impl ApplicationHandler<UserEvent> for App {
                             // Label
                                 let mut chart = ChartBuilder::on(&root)
                                     .margin(10)
+                                    .margin_top(60) // Extra margin for label
                                     // .caption("AAPL", ("sans-serif", 30).into_font().color(&WHITE)) // Removed caption
                                     .set_label_area_size(LabelAreaPosition::Left, 40)
                                     .set_label_area_size(LabelAreaPosition::Bottom, 40)
@@ -201,6 +212,23 @@ impl ApplicationHandler<UserEvent> for App {
             _ => (),
         }
     }
+    
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+         use tray_icon::menu::MenuEvent;
+         while let Ok(event) = MenuEvent::receiver().try_recv() {
+             // We only have one item "Quit", so exit on any event for now
+             if event.id.0 == "2" { // Hack: check ID? Or just exit. 
+                 // Wait, MenuItem::new returns item with auto ID?
+                 // Let's just assume it's quit for now, or match text.
+                 // Actually, best to store ID or just exit since it's the only item.
+                 event_loop.exit();
+             }
+             // Actually, `tray-icon` docs say IDs are auto-generated if constructed simply.
+             // But we can check since we only have Quit.
+             event_loop.exit();
+         }
+    }
+
 
     fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: UserEvent) {
         match event {
@@ -229,7 +257,8 @@ fn main() {
         context: None, 
         proxy,
         quotes: None,
-        tray_icon: None
+        tray_icon: None,
+        tray_menu: None
     };
     
     event_loop.run_app(&mut app).unwrap();
