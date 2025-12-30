@@ -134,18 +134,37 @@ impl ApplicationHandler<UserEvent> for App {
                             // Actually, let's try to map straight to u32 if possible, or use a custom backend.
                             // For now, drawing to a vec<u8> and blitting is reliable.
                             
+                            // Calculate stats
+                            let first_quote = quotes.first().unwrap();
+                            let last_quote = quotes.last().unwrap();
+                            let first_price = first_quote.close;
+                            let last_price = last_quote.close;
+                            let diff = last_price - first_price;
+                            let percent_change = (diff / first_price) * 100.0;
+                            
+                            let color = if diff >= 0.0 { &GREEN } else { &RED };
+                            let sign = if diff >= 0.0 { "+" } else { "" };
+
                             let mut pixel_buffer = vec![0u8; (width * height * 3) as usize];
                             {
                                 let root = BitMapBackend::with_buffer(&mut pixel_buffer[..], (width, height)).into_drawing_area();
                                 root.fill(&TRANSPARENT).unwrap(); 
                                 
                                 // Draw Text manually at top-left
+                                // "AAPL"
                                 root.draw_text("AAPL", &("sans-serif", 30).into_font().color(&WHITE), (20, 20)).unwrap();
+                                
+                                // Price
+                                let price_text = format!("{:.2}", last_price);
+                                root.draw_text(&price_text, &("sans-serif", 30).into_font().color(&WHITE), (120, 20)).unwrap();
+
+                                // Change
+                                let change_text = format!("{}{:.2} ({}{:.2}%)", sign, diff, sign, percent_change);
+                                root.draw_text(&change_text, &("sans-serif", 30).into_font().color(color), (240, 20)).unwrap();
 
                                 // wait, plotters BitMapBackend doesn't support alpha well usually unless RGBA?
                                 // BitMapBackend is RGB usually.
                                 // Let's try drawing with a dark background matching acrylic tint?
-                                // User said "transparent background" but chart on top.
                                 // If we fill with black, it will be black.
                                 // If we don't clean it, it's garbage.
                                 
@@ -172,6 +191,7 @@ impl ApplicationHandler<UserEvent> for App {
                                     .bold_line_style(WHITE.mix(0.3))
                                     .light_line_style(WHITE.mix(0.1))
                                     .label_style(("sans-serif", 15).into_font().color(&WHITE))
+                                    .x_label_formatter(&|d| d.format("%b %e").to_string())
                                     .draw().unwrap();
 
                                 chart.draw_series(
@@ -180,7 +200,7 @@ impl ApplicationHandler<UserEvent> for App {
                                             DateTime::from_timestamp(q.timestamp as i64, 0).unwrap(),
                                             q.close
                                         )),
-                                        &GREEN,
+                                        color,
                                     )
                                 ).unwrap();
                             }
