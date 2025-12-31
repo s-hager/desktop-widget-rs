@@ -1,3 +1,4 @@
+use crate::config::ChartConfig;
 use winit::event::WindowEvent;
 use winit::window::WindowId;
 use winit::event_loop::ActiveEventLoop;
@@ -19,4 +20,5 @@ pub trait WindowHandler {
     fn redraw(&mut self);
     fn update_data(&mut self, quotes: Vec<yahoo::Quote>, currency: String);
     fn update_active_charts(&mut self, _charts: Vec<(WindowId, String)>) {}
+    fn get_config(&self) -> Option<ChartConfig> { None }
 }

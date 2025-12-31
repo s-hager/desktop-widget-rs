@@ -1,0 +1,18 @@
+{
+  "charts": [
+    {
+      "symbol": "AAPL",
+      "x": 657,
+      "y": 209,
+      "width": 435,
+      "height": 300
+    },
+    {
+      "symbol": "MU",
+      "x": 209,
+      "y": 209,
+      "width": 440,
+      "height": 300
+    }
+  ]
+}

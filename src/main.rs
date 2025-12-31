@@ -13,6 +13,10 @@ use common::{UserEvent, WindowHandler};
 use chart::ChartWindow;
 use settings::SettingsWindow;
 
+mod config; // Check config module usage
+
+use config::AppConfig;
+
 struct App {
     windows: HashMap<WindowId, Box<dyn WindowHandler>>,
     proxy: EventLoopProxy<UserEvent>,
@@ -24,6 +28,8 @@ struct App {
     settings_id: Option<WindowId>,
     settings_menu_id: Option<String>,
     quit_menu_id: Option<String>,
+    config: AppConfig,
+    dirty: bool,
 }
 
 impl App {
@@ -33,6 +39,17 @@ impl App {
                 handler.update_active_charts(self.chart_ids.clone());
             }
         }
+    }
+
+    fn save_config(&self) {
+        let mut charts = Vec::new();
+        for handler in self.windows.values() {
+            if let Some(config) = handler.get_config() {
+                charts.push(config);
+            }
+        }
+        let app_config = AppConfig { charts };
+        app_config.save();
     }
 }
 
@@ -64,17 +81,22 @@ impl ApplicationHandler<UserEvent> for App {
              self.tray_menu = Some(tray_menu);
         }
 
-        // Open initial chart if no windows and no settings
+        // Open initial charts from config
         if self.windows.is_empty() {
-             // Optional: Don't open chart by default?
-             // User asked for "create/delete instances" in settings. 
-             // Maybe start with just Tray? Or one default logic.
-             // Previous code started with AAPL. Let's keep it.
-             // We can check if we want to restore from file later (persistence).
-             let chart = ChartWindow::new(event_loop, self.proxy.clone(), "AAPL".to_string());
-             let id = chart.window_id();
-             self.windows.insert(id, Box::new(chart));
-             self.chart_ids.push((id, "AAPL".to_string()));
+            self.config = AppConfig::load();
+            if self.config.charts.is_empty() {
+                 let chart = ChartWindow::new(event_loop, self.proxy.clone(), "AAPL".to_string(), None);
+                 let id = chart.window_id();
+                 self.windows.insert(id, Box::new(chart));
+                 self.chart_ids.push((id, "AAPL".to_string()));
+            } else {
+                 for chart_cfg in &self.config.charts {
+                     let chart = ChartWindow::new(event_loop, self.proxy.clone(), chart_cfg.symbol.clone(), Some(chart_cfg.clone()));
+                     let id = chart.window_id();
+                     self.windows.insert(id, Box::new(chart));
+                     self.chart_ids.push((id, chart_cfg.symbol.clone()));
+                 }
+            }
          }
     }
 
@@ -86,10 +108,15 @@ impl ApplicationHandler<UserEvent> for App {
             if Some(window_id) == self.settings_id {
                 self.settings_id = None;
             } else {
-                // If a chart closed, update settings list
+                // If a chart closed, update settings list & save
                 self.refresh_settings_window();
+                self.save_config();
             }
             return;
+        }
+        // Check for move/resize to trigger save
+        if let WindowEvent::Moved(_) | WindowEvent::Resized(_) = event {
+            self.dirty = true;
         }
 
         if let Some(handler) = self.windows.get_mut(&window_id) {
@@ -98,6 +125,11 @@ impl ApplicationHandler<UserEvent> for App {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+         if self.dirty {
+             self.save_config();
+             self.dirty = false;
+         }
+
          use tray_icon::{TrayIconEvent, MouseButton, MouseButtonState};
 
          while let Ok(event) = MenuEvent::receiver().try_recv() {
@@ -109,6 +141,7 @@ impl ApplicationHandler<UserEvent> for App {
              }
              if let Some(qid) = &self.quit_menu_id {
                  if id == *qid {
+                     self.save_config(); 
                      event_loop.exit();
                  }
              }
@@ -119,6 +152,10 @@ impl ApplicationHandler<UserEvent> for App {
                   let _ = self.proxy.send_event(UserEvent::OpenSettings);
              }
          }
+    }
+    
+    fn exiting(&mut self, _event_loop: &ActiveEventLoop) {
+        self.save_config();
     }
     
     fn user_event(&mut self, event_loop: &ActiveEventLoop, event: UserEvent) {
@@ -139,16 +176,18 @@ impl ApplicationHandler<UserEvent> for App {
                  eprintln!("Error fetching data for {}: {}", symbol, e);
              },
              UserEvent::AddChart(symbol) => {
-                 let chart = ChartWindow::new(event_loop, self.proxy.clone(), symbol.clone());
+                 let chart = ChartWindow::new(event_loop, self.proxy.clone(), symbol.clone(), None);
                  let id = chart.window_id();
                  self.windows.insert(id, Box::new(chart));
                  self.chart_ids.push((id, symbol));
                  self.refresh_settings_window();
+                 self.save_config();
              },
              UserEvent::DeleteChart(id) => {
                  self.windows.remove(&id);
                  self.chart_ids.retain(|(wid, _)| *wid != id);
                  self.refresh_settings_window();
+                 self.save_config();
              },
              UserEvent::OpenSettings => {
                  if self.settings_id.is_none() {
@@ -188,6 +227,8 @@ fn main() {
         settings_id: None,
         settings_menu_id: None,
         quit_menu_id: None,
+        config: AppConfig::default(),
+        dirty: false,
     };
     
     event_loop.run_app(&mut app).unwrap();

@@ -26,13 +26,21 @@ pub struct ChartWindow {
     quotes: Option<Vec<yahoo::Quote>>,
 }
 
+use crate::config::ChartConfig;
+
 impl ChartWindow {
-    pub fn new(event_loop: &ActiveEventLoop, proxy: EventLoopProxy<UserEvent>, symbol: String) -> Self {
-        let window_attributes = Window::default_attributes()
+    pub fn new(event_loop: &ActiveEventLoop, proxy: EventLoopProxy<UserEvent>, symbol: String, config: Option<ChartConfig>) -> Self {
+        let mut window_attributes = Window::default_attributes()
             .with_title(&format!("Stock Chart - {}", symbol))
             .with_transparent(true)
             .with_decorations(true)
             .with_skip_taskbar(true); 
+
+        if let Some(cfg) = &config {
+            window_attributes = window_attributes
+                .with_position(winit::dpi::PhysicalPosition::new(cfg.x, cfg.y))
+                .with_inner_size(winit::dpi::PhysicalSize::new(cfg.width, cfg.height));
+        }
 
         let window = Rc::new(event_loop.create_window(window_attributes).unwrap());
 
@@ -86,6 +94,18 @@ impl ChartWindow {
 impl WindowHandler for ChartWindow {
     fn window_id(&self) -> WindowId {
         self.window.id()
+    }
+    
+    fn get_config(&self) -> Option<ChartConfig> {
+        let size = self.window.inner_size();
+        let pos = self.window.outer_position().unwrap_or(winit::dpi::PhysicalPosition::new(0, 0));
+        Some(ChartConfig {
+            symbol: self.symbol.clone(),
+            x: pos.x,
+            y: pos.y,
+            width: size.width,
+            height: size.height,
+        })
     }
 
     fn handle_event(&mut self, event: WindowEvent, _event_loop: &ActiveEventLoop) {
