@@ -1,4 +1,4 @@
-use winit::window::Window;
+use winit::window::{Window, WindowLevel};
 use winit::window::WindowId;
 use winit::event_loop::{ActiveEventLoop, EventLoopProxy};
 use winit::event::{WindowEvent, ElementState, MouseButton};
@@ -31,6 +31,7 @@ use windows_sys::Win32::System::LibraryLoader::{LoadLibraryA, GetProcAddress};
 
 #[cfg(target_os = "windows")]
 #[repr(C)]
+#[allow(non_snake_case)]
 struct ACCENT_POLICY {
     AccentState: u32,
     AccentFlags: u32,
@@ -40,6 +41,7 @@ struct ACCENT_POLICY {
 
 #[cfg(target_os = "windows")]
 #[repr(C)]
+#[allow(non_snake_case)]
 struct WINDOWCOMPOSITIONATTRIBDATA {
     Attrib: u32,
     pvData: *mut c_void,
@@ -66,9 +68,18 @@ unsafe extern "system" fn subclass_proc(
     _dw_ref_data: usize,
 ) -> LRESULT {
     const WM_NCHITTEST: u32 = 0x0084;
-    // Removed WM_NCACTIVATE hack as requested
+    const WM_MOUSEACTIVATE: u32 = 0x0021;
+    const MA_NOACTIVATE: LRESULT = 3;
 
-    if msg == WM_NCHITTEST {
+    // Prevent activation on click
+    if msg == WM_MOUSEACTIVATE {
+        return MA_NOACTIVATE;
+    }
+
+    // Only handle Resize if Unlocked (ref_data == 0)
+    let locked = _dw_ref_data == 1;
+
+    if msg == WM_NCHITTEST && !locked {
         let mut rect = RECT { left: 0, top: 0, right: 0, bottom: 0 };
         // SAFETY: GetWindowRect is called with a valid HWND and pointer to RECT.
         unsafe { GetWindowRect(hwnd, &mut rect) };
@@ -174,18 +185,15 @@ fn apply_shadow(window: &Window) {
     }
 }
 
-fn set_resize_subclass(window: &Window, enabled: bool) {
+fn update_subclass(window: &Window, locked: bool) {
     #[cfg(target_os = "windows")]
     {
         if let Ok(handle) = window.window_handle() {
             if let RawWindowHandle::Win32(handle) = handle.as_raw() {
                 let hwnd = handle.hwnd.get() as HWND;
+                let ref_data = if locked { 1 } else { 0 };
                 unsafe {
-                    if enabled {
-                        SetWindowSubclass(hwnd, Some(subclass_proc), 1, 0);
-                    } else {
-                        RemoveWindowSubclass(hwnd, Some(subclass_proc), 1);
-                    }
+                     SetWindowSubclass(hwnd, Some(subclass_proc), 1, ref_data);
                 }
             }
         }
@@ -215,6 +223,7 @@ impl ChartWindow {
             .with_title(&format!("Stock Chart - {}", symbol))
             .with_transparent(true)
             .with_decorations(false)
+            .with_window_level(WindowLevel::AlwaysOnBottom)
             .with_skip_taskbar(true); 
 
         if let Some(cfg) = &config {
@@ -262,7 +271,7 @@ impl ChartWindow {
             });
         });
 
-        Self {
+        let chart = Self {
             window,
             surface,
             context,
@@ -270,7 +279,12 @@ impl ChartWindow {
             currency: "USD".to_string(),
             quotes: None,
             locked: true,
-        }
+        };
+        
+        // Initialize subclass
+        update_subclass(&chart.window, true);
+        
+        chart
     }
 }
 
@@ -285,7 +299,7 @@ impl WindowHandler for ChartWindow {
 
     fn set_locked(&mut self, locked: bool) {
         self.locked = locked;
-        set_resize_subclass(&self.window, !locked);
+        update_subclass(&self.window, locked);
         self.window.request_redraw();
     }
     
@@ -460,14 +474,50 @@ impl WindowHandler for ChartWindow {
             
             // Draw yellow frame if unlocked
             if !self.locked {
-                let width = buffer.width().get();
-                let height = buffer.height().get();
+                let width = buffer.width().get() as i32;
+                let height = buffer.height().get() as i32;
                 let frame_color = 0xFFFF00; // Yellow
                 let thickness = 3; 
+                let radius = 12; // Radius for rounded corners
 
                 for y in 0..height {
                     for x in 0..width {
-                        if x < thickness || x >= width - thickness || y < thickness || y >= height - thickness {
+                        let mut in_border = false;
+
+                        // Check corners
+                        if x < radius && y < radius { // Top-Left
+                            let d = ((x - radius).pow(2) + (y - radius).pow(2)) as f64;
+                            let r_out = (radius as f64).powi(2);
+                            let r_in = ((radius - thickness) as f64).powi(2);
+                            if d <= r_out && d >= r_in { in_border = true; }
+                        } else if x >= width - radius && y < radius { // Top-Right
+                            let d = ((x - (width - radius)).pow(2) + (y - radius).pow(2)) as f64;
+                            let r_out = (radius as f64).powi(2);
+                            let r_in = ((radius - thickness) as f64).powi(2);
+                            if d <= r_out && d >= r_in { in_border = true; }
+                        } else if x < radius && y >= height - radius { // Bottom-Left
+                             let d = ((x - radius).pow(2) + (y - (height - radius)).pow(2)) as f64;
+                             let r_out = (radius as f64).powi(2);
+                             let r_in = ((radius - thickness) as f64).powi(2);
+                             if d <= r_out && d >= r_in { in_border = true; }
+                        } else if x >= width - radius && y >= height - radius { // Bottom-Right
+                             let d = ((x - (width - radius)).pow(2) + (y - (height - radius)).pow(2)) as f64;
+                             let r_out = (radius as f64).powi(2);
+                             let r_in = ((radius - thickness) as f64).powi(2);
+                             if d <= r_out && d >= r_in { in_border = true; }
+                        } else {
+                            // Straight Edges
+                            // Top Edge (between rounded corners)
+                            if y < thickness && x >= radius && x < width - radius { in_border = true; }
+                            // Bottom Edge
+                            if y >= height - thickness && x >= radius && x < width - radius { in_border = true; }
+                            // Left Edge
+                            if x < thickness && y >= radius && y < height - radius { in_border = true; }
+                            // Right Edge
+                            if x >= width - thickness && y >= radius && y < height - radius { in_border = true; }
+                        }
+
+                        if in_border {
                              let idx = (y * width + x) as usize;
                              if idx < buffer.len() {
                                  buffer[idx] = frame_color;
