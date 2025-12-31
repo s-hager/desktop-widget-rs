@@ -30,6 +30,7 @@ struct App {
     quit_menu_id: Option<String>,
     config: AppConfig,
     dirty: bool,
+    last_save_time: std::time::Instant,
 }
 
 impl App {
@@ -125,9 +126,10 @@ impl ApplicationHandler<UserEvent> for App {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
-         if self.dirty {
+         if self.dirty && self.last_save_time.elapsed() > std::time::Duration::from_millis(500) {
              self.save_config();
              self.dirty = false;
+             self.last_save_time = std::time::Instant::now();
          }
 
          use tray_icon::{TrayIconEvent, MouseButton, MouseButtonState};
@@ -229,6 +231,7 @@ fn main() {
         quit_menu_id: None,
         config: AppConfig::default(),
         dirty: false,
+        last_save_time: std::time::Instant::now(),
     };
     
     event_loop.run_app(&mut app).unwrap();

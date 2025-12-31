@@ -10,7 +10,7 @@ use plotters::backend::BitMapBackend;
 use crate::common::{WindowHandler, UserEvent};
 use chrono::DateTime;
 use winit::platform::windows::WindowAttributesExtWindows;
-use window_vibrancy::apply_acrylic;
+use window_vibrancy::{apply_acrylic, apply_vibrancy, NSVisualEffectMaterial};
 use yahoo_finance_api as yahoo;
 
 pub struct ChartWindow {
@@ -44,10 +44,13 @@ impl ChartWindow {
 
         let window = Rc::new(event_loop.create_window(window_attributes).unwrap());
 
+        #[cfg(target_os = "macos")]
+        apply_vibrancy(&window, NSVisualEffectMaterial::HudWindow, None, None).expect("Unsupported platform! 'apply_vibrancy' is only supported on macOS");
+
         #[cfg(target_os = "windows")]
-        if let Err(err) = apply_acrylic(&window, Some((18, 18, 18, 125))) {
-             eprintln!("Failed to apply acrylic: {}", err);
-        }
+        // https://github.com/tauri-apps/window-vibrancy?tab=readme-ov-file#available-functions
+        // Bad performance when resizing/dragging the window on Windows 10 v1903+ and Windows 11 build 22000.
+        apply_acrylic(&window, Some((18, 18, 18, 125))).expect("Unsupported platform! 'apply_acrylic' is only supported on Windows");
 
         let context = Context::new(window.clone()).unwrap();
         let mut surface = Surface::new(&context, window.clone()).unwrap();
