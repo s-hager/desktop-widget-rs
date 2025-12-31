@@ -23,7 +23,7 @@ use windows_sys::Win32::UI::Controls::MARGINS;
 #[cfg(target_os = "windows")]
 use windows_sys::Win32::Foundation::{HWND, WPARAM, LPARAM, LRESULT, RECT, FARPROC, BOOL};
 #[cfg(target_os = "windows")]
-use windows_sys::Win32::UI::Shell::{SetWindowSubclass, DefSubclassProc, RemoveWindowSubclass};
+use windows_sys::Win32::UI::Shell::{SetWindowSubclass, DefSubclassProc};
 #[cfg(target_os = "windows")]
 use windows_sys::Win32::UI::WindowsAndMessaging::{GetWindowRect, HTBOTTOM, HTBOTTOMLEFT, HTBOTTOMRIGHT, HTLEFT, HTRIGHT, HTTOP, HTTOPLEFT, HTTOPRIGHT};
 #[cfg(target_os = "windows")]

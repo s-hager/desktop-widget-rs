@@ -201,18 +201,52 @@ impl WindowHandler for SettingsWindow {
                          
                          // Lock Button
                          let lock_hover = self.cursor_pos.0 >= 300.0 && self.cursor_pos.0 <= 360.0 && self.cursor_pos.1 >= y as f64 && self.cursor_pos.1 <= (y + 25) as f64;
-                         // If locked, show "Unlock" (Greenish?), If unlocked, show "Lock" (Yellowish?)
-                         // User asked for padlock icon.
-                         let (lock_text, lock_color) = if *locked {
-                             ("Lock", if lock_hover { RGBColor(100, 100, 100) } else { RGBColor(80, 80, 80) })
+                         
+                         let lock_color = if *locked {
+                             // Locked: Grayish
+                             if lock_hover { RGBColor(100, 100, 100) } else { RGBColor(80, 80, 80) }
                          } else {
-                             ("Open", if lock_hover { RGBColor(255, 200, 50) } else { RGBColor(200, 150, 0) })
+                             // Unlocked: Yellowish
+                             if lock_hover { RGBColor(255, 200, 50) } else { RGBColor(200, 150, 0) }
                          };
                          
                          root.draw(&Rectangle::new([(300, y), (360, y + 25)], lock_color.filled())).unwrap();
-                         // Ideally draw an icon, but text is safer. 
-                         // Try to use a simple text for now.
-                         root.draw_text(lock_text, &font.clone().color(&WHITE), (310, y + 3)).unwrap();
+                         
+                         // Draw Padlock Icon
+                         let icon_color = WHITE;
+                         let bx = 322; // Body X
+                         let by = y + 10; // Body Y
+                         
+                         // Body: 16x11 Rect
+                         root.draw(&Rectangle::new([(bx, by), (bx + 16, by + 11)], icon_color.filled())).unwrap();
+                         
+                         // Shackle
+                         let sx = bx + 2;
+                         let sy = by;
+                         let sw = 12; // Shackle width
+                         let sh = 6;  // Shackle height (above body)
+                         
+                         let outline_color = icon_color; //.stroke_width(2); implies using into_shape logic if complicated, but PathElement handles stroke
+                         
+                         if *locked {
+                             // Closed Shackle
+                             let points = vec![
+                                 (sx, sy),           // Left connection
+                                 (sx, sy - sh),      // Left top
+                                 (sx + sw, sy - sh), // Right top
+                                 (sx + sw, sy),      // Right connection
+                             ];
+                             root.draw(&PathElement::new(points, outline_color.stroke_width(2))).unwrap();
+                         } else {
+                             // Open Shackle (Lifted on right, or gap)
+                             let points = vec![
+                                 (sx, sy),           // Left connection
+                                 (sx, sy - sh),      // Left top
+                                 (sx + sw, sy - sh), // Right top
+                                 (sx + sw, sy - 3),  // Right tip (gap from body)
+                             ];
+                             root.draw(&PathElement::new(points, outline_color.stroke_width(2))).unwrap();
+                         }
                     }
                 }
 
