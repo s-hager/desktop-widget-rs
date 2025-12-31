@@ -10,20 +10,51 @@ use plotters::backend::BitMapBackend;
 use crate::common::{WindowHandler, UserEvent};
 use chrono::DateTime;
 use winit::platform::windows::WindowAttributesExtWindows;
-use window_vibrancy::{apply_acrylic, apply_vibrancy, NSVisualEffectMaterial};
+#[cfg(target_os = "macos")]
+use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial};
 use yahoo_finance_api as yahoo;
 use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
+use std::ffi::c_void;
 
 #[cfg(target_os = "windows")]
 use windows_sys::Win32::Graphics::Dwm::DwmExtendFrameIntoClientArea;
 #[cfg(target_os = "windows")]
 use windows_sys::Win32::UI::Controls::MARGINS;
 #[cfg(target_os = "windows")]
-use windows_sys::Win32::Foundation::{HWND, WPARAM, LPARAM, LRESULT, RECT, POINT};
+use windows_sys::Win32::Foundation::{HWND, WPARAM, LPARAM, LRESULT, RECT, FARPROC, BOOL};
 #[cfg(target_os = "windows")]
 use windows_sys::Win32::UI::Shell::{SetWindowSubclass, DefSubclassProc};
 #[cfg(target_os = "windows")]
-use windows_sys::Win32::UI::WindowsAndMessaging::{GetWindowRect, HTBOTTOM, HTBOTTOMLEFT, HTBOTTOMRIGHT, HTCLIENT, HTLEFT, HTRIGHT, HTTOP, HTTOPLEFT, HTTOPRIGHT};
+use windows_sys::Win32::UI::WindowsAndMessaging::{GetWindowRect, HTBOTTOM, HTBOTTOMLEFT, HTBOTTOMRIGHT, HTLEFT, HTRIGHT, HTTOP, HTTOPLEFT, HTTOPRIGHT};
+#[cfg(target_os = "windows")]
+use windows_sys::Win32::System::LibraryLoader::{LoadLibraryA, GetProcAddress};
+
+#[cfg(target_os = "windows")]
+#[repr(C)]
+struct ACCENT_POLICY {
+    AccentState: u32,
+    AccentFlags: u32,
+    GradientColor: u32,
+    AnimationId: u32,
+}
+
+#[cfg(target_os = "windows")]
+#[repr(C)]
+struct WINDOWCOMPOSITIONATTRIBDATA {
+    Attrib: u32,
+    pvData: *mut c_void,
+    cbData: usize,
+}
+
+#[cfg(target_os = "windows")]
+#[derive(PartialEq)]
+#[repr(C)]
+#[allow(non_camel_case_types)]
+enum ACCENT_STATE {
+    ACCENT_DISABLED = 0,
+    ACCENT_ENABLE_BLURBEHIND = 3,
+    ACCENT_ENABLE_ACRYLICBLURBEHIND = 4,
+}
 
 #[cfg(target_os = "windows")]
 unsafe extern "system" fn subclass_proc(
@@ -34,16 +65,13 @@ unsafe extern "system" fn subclass_proc(
     _uid_subclass: usize,
     _dw_ref_data: usize,
 ) -> LRESULT {
-    const WM_NCACTIVATE: u32 = 0x0086;
     const WM_NCHITTEST: u32 = 0x0084;
-
-    if msg == WM_NCACTIVATE {
-        return DefSubclassProc(hwnd, msg, 1, -1 as i32 as isize);
-    }
+    // Removed WM_NCACTIVATE hack as requested
 
     if msg == WM_NCHITTEST {
         let mut rect = RECT { left: 0, top: 0, right: 0, bottom: 0 };
-        GetWindowRect(hwnd, &mut rect);
+        // SAFETY: GetWindowRect is called with a valid HWND and pointer to RECT.
+        unsafe { GetWindowRect(hwnd, &mut rect) };
         
         let x = (lparam & 0xFFFF) as i16 as i32;
         let y = ((lparam >> 16) & 0xFFFF) as i16 as i32;
@@ -64,11 +92,57 @@ unsafe extern "system" fn subclass_proc(
         if right { return HTRIGHT as LRESULT; }
         if top { return HTTOP as LRESULT; }
         if bottom { return HTBOTTOM as LRESULT; }
-        
-        // If not on border, pass result to default (which will likely be HTCLIENT)
     }
 
-    DefSubclassProc(hwnd, msg, wparam, lparam)
+    // SAFETY: DefSubclassProc is safe to call with valid HWND.
+    unsafe { DefSubclassProc(hwnd, msg, wparam, lparam) }
+}
+
+#[cfg(target_os = "windows")]
+fn get_function_impl(library: &str, function: &str) -> Option<FARPROC> {
+    let module = unsafe { LoadLibraryA(library.as_ptr()) };
+    if module == 0 {
+        return None;
+    }
+    Some(unsafe { GetProcAddress(module, function.as_ptr()) })
+}
+
+#[cfg(target_os = "windows")]
+unsafe fn set_window_composition_attribute(hwnd: HWND, accent_state: ACCENT_STATE, color: Option<(u8, u8, u8, u8)>) {
+    type SetWindowCompositionAttributeFn = unsafe extern "system" fn(HWND, *mut WINDOWCOMPOSITIONATTRIBDATA) -> BOOL;
+
+    let library = "user32.dll\0";
+    let function = "SetWindowCompositionAttribute\0";
+
+    if let Some(proc) = get_function_impl(library, function) {
+        // SAFETY: Casting FARPROC to function pointer signature we expect.
+        let set_window_composition_attribute: SetWindowCompositionAttributeFn = unsafe { std::mem::transmute(proc) };
+        
+        let mut color = color.unwrap_or((0, 0, 0, 0));
+        let is_acrylic = accent_state == ACCENT_STATE::ACCENT_ENABLE_ACRYLICBLURBEHIND;
+        if is_acrylic && color.3 == 0 {
+             color.3 = 1;
+        }
+
+        let mut policy = ACCENT_POLICY {
+            AccentState: accent_state as u32,
+            AccentFlags: if is_acrylic { 0 } else { 2 },
+            GradientColor: (color.0 as u32)
+                | ((color.1 as u32) << 8)
+                | ((color.2 as u32) << 16)
+                | ((color.3 as u32) << 24),
+            AnimationId: 0,
+        };
+
+        let mut data = WINDOWCOMPOSITIONATTRIBDATA {
+            Attrib: 0x13, // WCA_ACCENT_POLICY
+            pvData: &mut policy as *mut _ as *mut c_void,
+            cbData: std::mem::size_of_val(&policy),
+        };
+
+        // SAFETY: Calling loaded function pointer.
+        unsafe { set_window_composition_attribute(hwnd, &mut data) };
+    }
 }
 
 fn apply_shadow(window: &Window) {
@@ -85,8 +159,14 @@ fn apply_shadow(window: &Window) {
                 };
                 unsafe {
                     DwmExtendFrameIntoClientArea(hwnd, &margins);
-                    // Subclass to handle WM_NCACTIVATE for persistent acrylic
                     SetWindowSubclass(hwnd, Some(subclass_proc), 1, 0);
+                    
+                    // Manual Acrylic Application
+                    set_window_composition_attribute(
+                        hwnd, 
+                        ACCENT_STATE::ACCENT_ENABLE_ACRYLICBLURBEHIND, 
+                        Some((18, 18, 18, 125))
+                    );
                 }
             }
         }
@@ -130,9 +210,6 @@ impl ChartWindow {
 
         // Since the window-shadows crate is deprecated and incompatible with the version of winit used in this project (causing the build failures you saw), I implemented the shadow logic manually using the windows-sys crate.
         apply_shadow(&window);
-
-        #[cfg(target_os = "windows")]
-        apply_acrylic(&window, Some((18, 18, 18, 125))).expect("Unsupported platform! 'apply_acrylic' is only supported on Windows");
 
         let context = Context::new(window.clone()).unwrap();
         let mut surface = Surface::new(&context, window.clone()).unwrap();
