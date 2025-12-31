@@ -19,7 +19,57 @@ use windows_sys::Win32::Graphics::Dwm::DwmExtendFrameIntoClientArea;
 #[cfg(target_os = "windows")]
 use windows_sys::Win32::UI::Controls::MARGINS;
 #[cfg(target_os = "windows")]
-use windows_sys::Win32::Foundation::HWND;
+use windows_sys::Win32::Foundation::{HWND, WPARAM, LPARAM, LRESULT, RECT, POINT};
+#[cfg(target_os = "windows")]
+use windows_sys::Win32::UI::Shell::{SetWindowSubclass, DefSubclassProc};
+#[cfg(target_os = "windows")]
+use windows_sys::Win32::UI::WindowsAndMessaging::{GetWindowRect, HTBOTTOM, HTBOTTOMLEFT, HTBOTTOMRIGHT, HTCLIENT, HTLEFT, HTRIGHT, HTTOP, HTTOPLEFT, HTTOPRIGHT};
+
+#[cfg(target_os = "windows")]
+unsafe extern "system" fn subclass_proc(
+    hwnd: HWND,
+    msg: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+    _uid_subclass: usize,
+    _dw_ref_data: usize,
+) -> LRESULT {
+    const WM_NCACTIVATE: u32 = 0x0086;
+    const WM_NCHITTEST: u32 = 0x0084;
+
+    if msg == WM_NCACTIVATE {
+        return DefSubclassProc(hwnd, msg, 1, -1 as i32 as isize);
+    }
+
+    if msg == WM_NCHITTEST {
+        let mut rect = RECT { left: 0, top: 0, right: 0, bottom: 0 };
+        GetWindowRect(hwnd, &mut rect);
+        
+        let x = (lparam & 0xFFFF) as i16 as i32;
+        let y = ((lparam >> 16) & 0xFFFF) as i16 as i32;
+        
+        let border_width = 8;
+        let bottom_border_height = 8; 
+
+        let left = x < rect.left + border_width;
+        let right = x >= rect.right - border_width;
+        let top = y < rect.top + border_width;
+        let bottom = y >= rect.bottom - bottom_border_height;
+
+        if top && left { return HTTOPLEFT as LRESULT; }
+        if top && right { return HTTOPRIGHT as LRESULT; }
+        if bottom && left { return HTBOTTOMLEFT as LRESULT; }
+        if bottom && right { return HTBOTTOMRIGHT as LRESULT; }
+        if left { return HTLEFT as LRESULT; }
+        if right { return HTRIGHT as LRESULT; }
+        if top { return HTTOP as LRESULT; }
+        if bottom { return HTBOTTOM as LRESULT; }
+        
+        // If not on border, pass result to default (which will likely be HTCLIENT)
+    }
+
+    DefSubclassProc(hwnd, msg, wparam, lparam)
+}
 
 fn apply_shadow(window: &Window) {
     #[cfg(target_os = "windows")]
@@ -35,6 +85,8 @@ fn apply_shadow(window: &Window) {
                 };
                 unsafe {
                     DwmExtendFrameIntoClientArea(hwnd, &margins);
+                    // Subclass to handle WM_NCACTIVATE for persistent acrylic
+                    SetWindowSubclass(hwnd, Some(subclass_proc), 1, 0);
                 }
             }
         }
@@ -80,8 +132,6 @@ impl ChartWindow {
         apply_shadow(&window);
 
         #[cfg(target_os = "windows")]
-        // https://github.com/tauri-apps/window-vibrancy?tab=readme-ov-file#available-functions
-        // Bad performance when resizing/dragging the window on Windows 10 v1903+ and Windows 11 build 22000.
         apply_acrylic(&window, Some((18, 18, 18, 125))).expect("Unsupported platform! 'apply_acrylic' is only supported on Windows");
 
         let context = Context::new(window.clone()).unwrap();
