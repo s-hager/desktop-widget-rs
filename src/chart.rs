@@ -23,7 +23,7 @@ use windows_sys::Win32::UI::Controls::MARGINS;
 #[cfg(target_os = "windows")]
 use windows_sys::Win32::Foundation::{HWND, WPARAM, LPARAM, LRESULT, RECT, FARPROC, BOOL};
 #[cfg(target_os = "windows")]
-use windows_sys::Win32::UI::Shell::{SetWindowSubclass, DefSubclassProc};
+use windows_sys::Win32::UI::Shell::{SetWindowSubclass, DefSubclassProc, RemoveWindowSubclass};
 #[cfg(target_os = "windows")]
 use windows_sys::Win32::UI::WindowsAndMessaging::{GetWindowRect, HTBOTTOM, HTBOTTOMLEFT, HTBOTTOMRIGHT, HTLEFT, HTRIGHT, HTTOP, HTTOPLEFT, HTTOPRIGHT};
 #[cfg(target_os = "windows")]
@@ -159,7 +159,8 @@ fn apply_shadow(window: &Window) {
                 };
                 unsafe {
                     DwmExtendFrameIntoClientArea(hwnd, &margins);
-                    SetWindowSubclass(hwnd, Some(subclass_proc), 1, 0);
+                    // Use a separate function or logic to manage subclass based on lock state
+                    // SetWindowSubclass(hwnd, Some(subclass_proc), 1, 0); // Moved to set_locked logic
                     
                     // Manual Acrylic Application
                     set_window_composition_attribute(
@@ -167,6 +168,24 @@ fn apply_shadow(window: &Window) {
                         ACCENT_STATE::ACCENT_ENABLE_ACRYLICBLURBEHIND, 
                         Some((18, 18, 18, 125))
                     );
+                }
+            }
+        }
+    }
+}
+
+fn set_resize_subclass(window: &Window, enabled: bool) {
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(handle) = window.window_handle() {
+            if let RawWindowHandle::Win32(handle) = handle.as_raw() {
+                let hwnd = handle.hwnd.get() as HWND;
+                unsafe {
+                    if enabled {
+                        SetWindowSubclass(hwnd, Some(subclass_proc), 1, 0);
+                    } else {
+                        RemoveWindowSubclass(hwnd, Some(subclass_proc), 1);
+                    }
                 }
             }
         }
@@ -184,6 +203,7 @@ pub struct ChartWindow {
     symbol: String,
     currency: String,
     quotes: Option<Vec<yahoo::Quote>>,
+    locked: bool,
 }
 
 use crate::config::ChartConfig;
@@ -249,6 +269,7 @@ impl ChartWindow {
             symbol,
             currency: "USD".to_string(),
             quotes: None,
+            locked: true,
         }
     }
 }
@@ -256,6 +277,16 @@ impl ChartWindow {
 impl WindowHandler for ChartWindow {
     fn window_id(&self) -> WindowId {
         self.window.id()
+    }
+
+    fn is_locked(&self) -> bool {
+        self.locked
+    }
+
+    fn set_locked(&mut self, locked: bool) {
+        self.locked = locked;
+        set_resize_subclass(&self.window, !locked);
+        self.window.request_redraw();
     }
     
     fn get_config(&self) -> Option<ChartConfig> {
@@ -280,7 +311,9 @@ impl WindowHandler for ChartWindow {
                 self.resize(size);
             },
             WindowEvent::MouseInput { state: ElementState::Pressed, button: MouseButton::Left, .. } => {
-                let _ = self.window.drag_window();
+                if !self.locked {
+                    let _ = self.window.drag_window();
+                }
             },
             WindowEvent::RedrawRequested => {
                 self.redraw();
@@ -306,9 +339,14 @@ impl WindowHandler for ChartWindow {
         if let Ok(mut buffer) = self.surface.buffer_mut() {
             buffer.fill(0);
 
+            let width = buffer.width().get();
+            let height = buffer.height().get();
+
+            // (Border drawing moved to end)
+
             if let Some(quotes) = &self.quotes {
-                let width = buffer.width().get();
-                let height = buffer.height().get();
+                // let width = buffer.width().get(); // Already defined
+                // let height = buffer.height().get();
                 
                 let first_quote = quotes.first().unwrap();
                 let last_quote = quotes.last().unwrap();
@@ -419,6 +457,26 @@ impl WindowHandler for ChartWindow {
                     }
                 }
             }
+            
+            // Draw yellow frame if unlocked
+            if !self.locked {
+                let width = buffer.width().get();
+                let height = buffer.height().get();
+                let frame_color = 0xFFFF00; // Yellow
+                let thickness = 3; 
+
+                for y in 0..height {
+                    for x in 0..width {
+                        if x < thickness || x >= width - thickness || y < thickness || y >= height - thickness {
+                             let idx = (y * width + x) as usize;
+                             if idx < buffer.len() {
+                                 buffer[idx] = frame_color;
+                             }
+                        }
+                    }
+                }
+            }
+
             buffer.present().ok();
         }
     }

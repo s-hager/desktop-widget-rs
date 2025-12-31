@@ -23,7 +23,7 @@ pub struct SettingsWindow {
     // UI State
     input_text: String,
     is_focused: bool,
-    active_charts: Vec<(WindowId, String)>, // Keep track of charts
+    active_charts: Vec<(WindowId, String, bool)>, // (Id, Symbol, Locked)
     cursor_pos: (f64, f64),
 }
 
@@ -55,7 +55,7 @@ impl SettingsWindow {
         }
     }
 
-    pub fn update_active_charts(&mut self, charts: Vec<(WindowId, String)>) {
+    pub fn update_active_charts(&mut self, charts: Vec<(WindowId, String, bool)>) {
         self.active_charts = charts;
         self.window.request_redraw();
     }
@@ -70,7 +70,7 @@ impl WindowHandler for SettingsWindow {
         // Not used
     }
 
-    fn update_active_charts(&mut self, charts: Vec<(WindowId, String)>) {
+    fn update_active_charts(&mut self, charts: Vec<(WindowId, String, bool)>) {
         self.active_charts = charts;
         self.window.request_redraw();
     }
@@ -99,10 +99,16 @@ impl WindowHandler for SettingsWindow {
                 }
 
                 // Hit test Delete buttons
-                for (i, (id, _)) in self.active_charts.iter().enumerate() {
+                for (i, (id, _, locked)) in self.active_charts.iter().enumerate() {
                     let btn_y = 130 + (i as i32 * 30);
+                    // Delete Button (x: 230-290)
                     if x >= 230.0 && x <= 290.0 && y >= btn_y as f64 && y <= (btn_y + 25) as f64 {
                         let _ = self.proxy.send_event(UserEvent::DeleteChart(*id));
+                    }
+                    
+                    // Lock Button (x: 300-360)
+                    if x >= 300.0 && x <= 360.0 && y >= btn_y as f64 && y <= (btn_y + 25) as f64 {
+                         let _ = self.proxy.send_event(UserEvent::ToggleLock(*id, !locked));
                     }
                 }
                 
@@ -183,7 +189,7 @@ impl WindowHandler for SettingsWindow {
                     root.draw_text("Active Charts:", &font.clone().color(&WHITE), (20, 100)).unwrap();
 
                     // List
-                    for (i, (_id, symbol)) in self.active_charts.iter().enumerate() {
+                    for (i, (_id, symbol, locked)) in self.active_charts.iter().enumerate() {
                          let y = 130 + (i as i32 * 30);
                          root.draw_text(symbol, &font.clone().color(&WHITE), (20, y)).unwrap();
                          
@@ -192,6 +198,21 @@ impl WindowHandler for SettingsWindow {
                          let del_color = if del_hover { RGBColor(255, 50, 50) } else { RGBColor(200, 0, 0) };
                          root.draw(&Rectangle::new([(230, y), (290, y + 25)], del_color.filled())).unwrap();
                          root.draw_text("Del", &font.clone().color(&WHITE), (245, y + 3)).unwrap();
+                         
+                         // Lock Button
+                         let lock_hover = self.cursor_pos.0 >= 300.0 && self.cursor_pos.0 <= 360.0 && self.cursor_pos.1 >= y as f64 && self.cursor_pos.1 <= (y + 25) as f64;
+                         // If locked, show "Unlock" (Greenish?), If unlocked, show "Lock" (Yellowish?)
+                         // User asked for padlock icon.
+                         let (lock_text, lock_color) = if *locked {
+                             ("Lock", if lock_hover { RGBColor(100, 100, 100) } else { RGBColor(80, 80, 80) })
+                         } else {
+                             ("Open", if lock_hover { RGBColor(255, 200, 50) } else { RGBColor(200, 150, 0) })
+                         };
+                         
+                         root.draw(&Rectangle::new([(300, y), (360, y + 25)], lock_color.filled())).unwrap();
+                         // Ideally draw an icon, but text is safer. 
+                         // Try to use a simple text for now.
+                         root.draw_text(lock_text, &font.clone().color(&WHITE), (310, y + 3)).unwrap();
                     }
                 }
 

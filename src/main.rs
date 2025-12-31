@@ -24,7 +24,7 @@ struct App {
     #[allow(dead_code)]
     tray_menu: Option<Menu>,
     // Store IDs to manage settings list
-    chart_ids: Vec<(WindowId, String)>, 
+    chart_ids: Vec<(WindowId, String, bool)>, 
     settings_id: Option<WindowId>,
     settings_menu_id: Option<String>,
     quit_menu_id: Option<String>,
@@ -89,13 +89,13 @@ impl ApplicationHandler<UserEvent> for App {
                  let chart = ChartWindow::new(event_loop, self.proxy.clone(), "AAPL".to_string(), None);
                  let id = chart.window_id();
                  self.windows.insert(id, Box::new(chart));
-                 self.chart_ids.push((id, "AAPL".to_string()));
+                 self.chart_ids.push((id, "AAPL".to_string(), true));
             } else {
                  for chart_cfg in &self.config.charts {
                      let chart = ChartWindow::new(event_loop, self.proxy.clone(), chart_cfg.symbol.clone(), Some(chart_cfg.clone()));
                      let id = chart.window_id();
                      self.windows.insert(id, Box::new(chart));
-                     self.chart_ids.push((id, chart_cfg.symbol.clone()));
+                     self.chart_ids.push((id, chart_cfg.symbol.clone(), true));
                  }
             }
          }
@@ -104,10 +104,22 @@ impl ApplicationHandler<UserEvent> for App {
     fn window_event(&mut self, event_loop: &ActiveEventLoop, window_id: WindowId, event: WindowEvent) {
         if let WindowEvent::CloseRequested = event {
             self.windows.remove(&window_id);
-            self.chart_ids.retain(|(id, _)| *id != window_id);
+            self.chart_ids.retain(|(id, _, _)| *id != window_id);
             
             if Some(window_id) == self.settings_id {
                 self.settings_id = None;
+                // Lock all charts when settings closes
+                for entry in &mut self.chart_ids {
+                    entry.2 = true; // Set locked to true
+                }
+                // We need to clone the IDs to iterate and mutate windows
+                let ids: Vec<WindowId> = self.windows.keys().cloned().collect(); 
+                for id in ids {
+                    if let Some(handler) = self.windows.get_mut(&id) {
+                         // Only lock chart windows (Settings is already closing/closed, but generic check doesn't hurt)
+                         handler.set_locked(true);
+                    }
+                }
             } else {
                 // If a chart closed, update settings list & save
                 self.refresh_settings_window();
@@ -164,8 +176,8 @@ impl ApplicationHandler<UserEvent> for App {
         match event {
              UserEvent::DataLoaded(symbol, quotes, currency) => {
                  let targets: Vec<WindowId> = self.chart_ids.iter()
-                     .filter(|(_, s)| *s == symbol)
-                     .map(|(id, _)| *id)
+                     .filter(|(_, s, _)| *s == symbol)
+                     .map(|(id, _, _)| *id)
                      .collect();
                 
                  for id in targets {
@@ -181,15 +193,26 @@ impl ApplicationHandler<UserEvent> for App {
                  let chart = ChartWindow::new(event_loop, self.proxy.clone(), symbol.clone(), None);
                  let id = chart.window_id();
                  self.windows.insert(id, Box::new(chart));
-                 self.chart_ids.push((id, symbol));
+                 self.chart_ids.push((id, symbol, true));
                  self.refresh_settings_window();
                  self.save_config();
              },
              UserEvent::DeleteChart(id) => {
                  self.windows.remove(&id);
-                 self.chart_ids.retain(|(wid, _)| *wid != id);
+                 self.chart_ids.retain(|(wid, _, _)| *wid != id);
                  self.refresh_settings_window();
                  self.save_config();
+             },
+             UserEvent::ToggleLock(id, locked) => {
+                 // Update internal state
+                 if let Some(entry) = self.chart_ids.iter_mut().find(|(wid, _, _)| *wid == id) {
+                     entry.2 = locked;
+                 }
+                 // Update window
+                 if let Some(handler) = self.windows.get_mut(&id) {
+                     handler.set_locked(locked);
+                 }
+                 self.refresh_settings_window();
              },
              UserEvent::OpenSettings => {
                  if self.settings_id.is_none() {

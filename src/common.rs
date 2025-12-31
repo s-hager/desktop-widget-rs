@@ -11,6 +11,7 @@ pub enum UserEvent {
     AddChart(String),
     DeleteChart(WindowId),
     OpenSettings,
+    ToggleLock(WindowId, bool),
 }
 
 pub trait WindowHandler {
@@ -19,6 +20,8 @@ pub trait WindowHandler {
     fn resize(&mut self, size: winit::dpi::PhysicalSize<u32>);
     fn redraw(&mut self);
     fn update_data(&mut self, quotes: Vec<yahoo::Quote>, currency: String);
-    fn update_active_charts(&mut self, _charts: Vec<(WindowId, String)>) {}
+    fn update_active_charts(&mut self, _charts: Vec<(WindowId, String, bool)>) {}
     fn get_config(&self) -> Option<ChartConfig> { None }
+    fn set_locked(&mut self, _locked: bool) {}
+    fn is_locked(&self) -> bool { true }
 }
