@@ -1,7 +1,7 @@
 use winit::window::Window;
 use winit::window::WindowId;
 use winit::event_loop::{ActiveEventLoop, EventLoopProxy};
-use winit::event::WindowEvent;
+use winit::event::{WindowEvent, ElementState, MouseButton};
 use std::rc::Rc;
 use softbuffer::{Context, Surface};
 use std::num::NonZeroU32;
@@ -12,6 +12,34 @@ use chrono::DateTime;
 use winit::platform::windows::WindowAttributesExtWindows;
 use window_vibrancy::{apply_acrylic, apply_vibrancy, NSVisualEffectMaterial};
 use yahoo_finance_api as yahoo;
+use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
+
+#[cfg(target_os = "windows")]
+use windows_sys::Win32::Graphics::Dwm::DwmExtendFrameIntoClientArea;
+#[cfg(target_os = "windows")]
+use windows_sys::Win32::UI::Controls::MARGINS;
+#[cfg(target_os = "windows")]
+use windows_sys::Win32::Foundation::HWND;
+
+fn apply_shadow(window: &Window) {
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(handle) = window.window_handle() {
+            if let RawWindowHandle::Win32(handle) = handle.as_raw() {
+                let hwnd = handle.hwnd.get() as HWND;
+                let margins = MARGINS {
+                    cxLeftWidth: 1,
+                    cxRightWidth: 1,
+                    cyTopHeight: 1,
+                    cyBottomHeight: 1,
+                };
+                unsafe {
+                    DwmExtendFrameIntoClientArea(hwnd, &margins);
+                }
+            }
+        }
+    }
+}
 
 pub struct ChartWindow {
     window: Rc<Window>,
@@ -30,10 +58,11 @@ use crate::config::ChartConfig;
 
 impl ChartWindow {
     pub fn new(event_loop: &ActiveEventLoop, proxy: EventLoopProxy<UserEvent>, symbol: String, config: Option<ChartConfig>) -> Self {
+        // ... (attributes setup)
         let mut window_attributes = Window::default_attributes()
             .with_title(&format!("Stock Chart - {}", symbol))
             .with_transparent(true)
-            .with_decorations(true)
+            .with_decorations(false)
             .with_skip_taskbar(true); 
 
         if let Some(cfg) = &config {
@@ -45,7 +74,10 @@ impl ChartWindow {
         let window = Rc::new(event_loop.create_window(window_attributes).unwrap());
 
         #[cfg(target_os = "macos")]
-        apply_vibrancy(&window, NSVisualEffectMaterial::HudWindow, None, None).expect("Unsupported platform! 'apply_vibrancy' is only supported on macOS");
+        apply_vibrancy(&*window, NSVisualEffectMaterial::HudWindow, None, None).expect("Unsupported platform!");
+
+        // Since the window-shadows crate is deprecated and incompatible with the version of winit used in this project (causing the build failures you saw), I implemented the shadow logic manually using the windows-sys crate.
+        apply_shadow(&window);
 
         #[cfg(target_os = "windows")]
         // https://github.com/tauri-apps/window-vibrancy?tab=readme-ov-file#available-functions
@@ -119,6 +151,9 @@ impl WindowHandler for ChartWindow {
             },
             WindowEvent::Resized(size) => {
                 self.resize(size);
+            },
+            WindowEvent::MouseInput { state: ElementState::Pressed, button: MouseButton::Left, .. } => {
+                let _ = self.window.drag_window();
             },
             WindowEvent::RedrawRequested => {
                 self.redraw();
