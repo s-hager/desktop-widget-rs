@@ -1,310 +1,174 @@
+mod common;
+mod chart;
+mod settings;
+
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy};
-use winit::window::{Window, WindowId};
-use window_vibrancy::apply_acrylic;
-use std::num::NonZeroU32;
-use std::rc::Rc;
-use softbuffer::{Context, Surface};
-use yahoo_finance_api as yahoo;
-use chrono::{DateTime, Utc, TimeZone};
-use plotters::prelude::*;
-use plotters::backend::BitMapBackend;
+use winit::window::WindowId;
+use std::collections::HashMap;
 use tray_icon::{TrayIcon, TrayIconBuilder, Icon};
-use tray_icon::menu::{Menu, MenuItem, MenuEvent};
-use winit::platform::windows::WindowAttributesExtWindows;
-
-#[derive(Debug)]
-enum UserEvent {
-    DataLoaded(Vec<yahoo::Quote>, String), // Quotes + Currency
-    Error(String),
-}
+use tray_icon::menu::{Menu, MenuItem, MenuEvent}; // Check MenuEvent usagerEvent, WindowHandler};
+use common::{UserEvent, WindowHandler};
+use chart::ChartWindow;
+use settings::SettingsWindow;
 
 struct App {
-    window: Option<Rc<Window>>,
-    surface: Option<Surface<Rc<Window>, Rc<Window>>>,
-    context: Option<Context<Rc<Window>>>,
+    windows: HashMap<WindowId, Box<dyn WindowHandler>>,
     proxy: EventLoopProxy<UserEvent>,
-    quotes: Option<Vec<yahoo::Quote>>,
-    currency: String,
-    symbol: String,
     tray_icon: Option<TrayIcon>,
-    tray_menu: Option<Menu>, // Keep menu alive
+    #[allow(dead_code)]
+    tray_menu: Option<Menu>,
+    // Store IDs to manage settings list
+    chart_ids: Vec<(WindowId, String)>, 
+    settings_id: Option<WindowId>,
+    settings_menu_id: Option<String>,
+    quit_menu_id: Option<String>,
+}
+
+impl App {
+    fn refresh_settings_window(&mut self) {
+        if let Some(sid) = self.settings_id {
+            if let Some(handler) = self.windows.get_mut(&sid) {
+                handler.update_active_charts(self.chart_ids.clone());
+            }
+        }
+    }
 }
 
 impl ApplicationHandler<UserEvent> for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        let window_attributes = Window::default_attributes()
-            .with_title("Acrylic Stock Chart")
-            .with_transparent(true)
-            .with_decorations(true)
-            .with_skip_taskbar(true); // Hide from taskbar
+        // Initialize Tray if not exists
+        if self.tray_icon.is_none() {
+             let tray_menu = Menu::new();
+             let settings_i = MenuItem::new("Settings", true, None);
+             let quit_i = MenuItem::new("Quit", true, None);
+             
+             self.settings_menu_id = Some(settings_i.id().0.clone());
+             self.quit_menu_id = Some(quit_i.id().0.clone());
 
-        let window = Rc::new(event_loop.create_window(window_attributes).unwrap());
-        
-        #[cfg(target_os = "windows")]
-        if let Err(err) = apply_acrylic(&window, Some((18, 18, 18, 125))) {
-             eprintln!("Failed to apply acrylic: {}", err);
+             tray_menu.append(&settings_i).unwrap();
+             tray_menu.append(&quit_i).unwrap();
+
+             let icon_rgba = vec![255u8; 32 * 32 * 4]; 
+             let icon = Icon::from_rgba(icon_rgba, 32, 32).unwrap();
+             
+             let tray_icon = TrayIconBuilder::new()
+                .with_menu(Box::new(tray_menu.clone()))
+                .with_icon(icon)
+                .with_tooltip("Stock Widget")
+                .build()
+                .unwrap();
+
+             self.tray_icon = Some(tray_icon);
+             self.tray_menu = Some(tray_menu);
         }
 
-        // Initialize Tray Menu
-        let tray_menu = Menu::new();
-        let quit_i = MenuItem::new("Quit", true, None);
-        tray_menu.append(&quit_i).unwrap();
-
-        // Initialize Tray Icon
-        let icon_rgba = vec![255u8; 32 * 32 * 4]; // White icon
-        let icon = Icon::from_rgba(icon_rgba, 32, 32).unwrap();
-        let tray_icon = TrayIconBuilder::new()
-            .with_menu(Box::new(tray_menu.clone()))
-            .with_icon(icon)
-            .with_tooltip("Stock Widget")
-            .build()
-            .unwrap();
-        
-        self.tray_icon = Some(tray_icon);
-        self.tray_menu = Some(tray_menu);
-
-        let context = Context::new(window.clone()).unwrap();
-        let mut surface = Surface::new(&context, window.clone()).unwrap();
-        
-        let size = window.inner_size();
-        if let (Some(width), Some(height)) = (NonZeroU32::new(size.width), NonZeroU32::new(size.height)) {
-             surface.resize(width, height).unwrap();
-        }
-
-        self.window = Some(window);
-        self.context = Some(context);
-        self.surface = Some(surface);
-
-        // Spawn fetching task
-        let proxy = self.proxy.clone();
-        let symbol = self.symbol.clone();
-        std::thread::spawn(move || {
-            let rt = tokio::runtime::Runtime::new().unwrap();
-            rt.block_on(async {
-                let provider = yahoo::YahooConnector::new().unwrap();
-                match provider.get_quote_range(&symbol, "1d", "1mo").await {
-                    Ok(response) => {
-                         let currency = response.metadata().ok().and_then(|m| m.currency.clone()).unwrap_or("USD".to_string());
-                         if let Ok(quotes) = response.quotes() {
-                             let _ = proxy.send_event(UserEvent::DataLoaded(quotes, currency));
-                         } else {
-                             let _ = proxy.send_event(UserEvent::Error("No quotes found".into()));
-                         }
-                    },
-                    Err(e) => {
-                        let _ = proxy.send_event(UserEvent::Error(format!("Fetch error: {}", e)));
-                    }
-                }
-            });
-        });
-    }
-
-    fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
-        match event {
-            WindowEvent::CloseRequested => {
-                event_loop.exit();
-            },
-            WindowEvent::Resized(size) => {
-                 if let Some(surface) = &mut self.surface {
-                     if let (Some(width), Some(height)) = (NonZeroU32::new(size.width), NonZeroU32::new(size.height)) {
-                         surface.resize(width, height).unwrap();
-                         if let Some(window) = &self.window {
-                             window.request_redraw();
-                         }
-                     }
-                 }
-            },
-            WindowEvent::RedrawRequested => {
-                if let (Some(window), Some(surface)) = (&self.window, &mut self.surface) {
-                    if let Ok(mut buffer) = surface.buffer_mut() {
-                        // Clear to transparency (0x00000000)
-                        buffer.fill(0);
-
-                        // If we have data, draw the chart
-                        if let Some(quotes) = &self.quotes {
-                            let width = buffer.width().get();
-                            let height = buffer.height().get();
-                            
-                            // Plotters needs a buffer of u8 (RGB or RGBA) usually, but we have u32 (0RGB).
-                            // Helper to wrap buffer? 
-                            // Plotters has BitMapBackend. We can transmute slice but endianness matters.
-                            // softbuffer is usually 0x00RRGGBB.
-                            // Plotters RGB is [R, G, B].
-                            
-                            // Let's create a temporary Vec<u8> for plotters, draw to it, then copy to softbuffer.
-                            // Not efficient but safest for quick impl.
-                            // Actually, let's try to map straight to u32 if possible, or use a custom backend.
-                            // For now, drawing to a vec<u8> and blitting is reliable.
-                            
-                            // Calculate stats
-                            let first_quote = quotes.first().unwrap();
-                            let last_quote = quotes.last().unwrap();
-                            let first_price = first_quote.close;
-                            let last_price = last_quote.close;
-                            let diff = last_price - first_price;
-                            let percent_change = (diff / first_price) * 100.0;
-                            
-                            let color = if diff >= 0.0 { &GREEN } else { &RED };
-                            let sign = if diff >= 0.0 { "+" } else { "" };
-
-                            let symbol = match self.currency.as_str() {
-                                "USD" => "$",
-                                "EUR" => "€",
-                                "GBP" => "£",
-                                "JPY" => "¥",
-                                "CHF" => "₣",
-                                "CNY" => "¥",
-                                "KRW" => "₩",
-                                "TND" => "دج",
-                                "EGP" => "جنيه",
-                                "RMB" => "¥",
-                                "ZAR" => "ریال",
-                                "INR" => "₹",
-                                _ => &self.currency,
-                            };
-
-                            let mut pixel_buffer = vec![0u8; (width * height * 3) as usize];
-                            {
-                                let root = BitMapBackend::with_buffer(&mut pixel_buffer[..], (width, height)).into_drawing_area();
-                                root.fill(&TRANSPARENT).unwrap(); 
-                                
-                                // Dynamic Layout
-                                let font = ("sans-serif", 30).into_font();
-                                let padding = 20;
-                                let mut current_x = 20;
-
-                                // Symbol
-                                root.draw_text(&self.symbol, &font.clone().color(&WHITE), (current_x, 20)).unwrap();
-                                let (w, _) = font.box_size(&self.symbol).unwrap();
-                                current_x += w as i32 + padding;
-                                
-                                // Price
-                                let price_text = format!("{}{:.2}", symbol, last_price);
-                                root.draw_text(&price_text, &font.clone().color(&WHITE), (current_x, 20)).unwrap();
-                                let (w, _) = font.box_size(&price_text).unwrap();
-                                current_x += w as i32 + padding;
-
-                                // Change
-                                let change_text = format!("{}{:.2} ({}{:.2}%)", sign, diff, sign, percent_change);
-                                root.draw_text(&change_text, &font.clone().color(color), (current_x, 20)).unwrap();
-                                let (w, _) = font.box_size(&change_text).unwrap();
-                                current_x += w as i32 + padding;
-
-                                // Update Window Min Size
-                                let min_width = current_x as u32;
-                                let min_height = 300; 
-                                window.set_min_inner_size(Some(winit::dpi::LogicalSize::new(min_width as f64, min_height as f64)));
-
-                                let start_date = DateTime::from_timestamp(quotes.first().unwrap().timestamp as i64, 0).unwrap();
-                                let end_date = DateTime::from_timestamp(quotes.last().unwrap().timestamp as i64, 0).unwrap();
-                                
-                                let min_price = quotes.iter().map(|q| q.low).fold(f64::INFINITY, f64::min);
-                                let max_price = quotes.iter().map(|q| q.high).fold(f64::NEG_INFINITY, f64::max);
-                                
-                                // Determine precision
-                                let range = max_price - min_price;
-                                let use_decimals = range < 1.0 || max_price < 2.0;
-                                
-                                // Dynamic Labels
-                                let x_labels = (width / 120).max(2) as usize;
-                                let y_labels = (height / 60).max(2) as usize;
-
-                                let mut chart = ChartBuilder::on(&root)
-                                    .margin(10)
-                                    .margin_top(60) 
-                                    .set_label_area_size(LabelAreaPosition::Left, 40)
-                                    .set_label_area_size(LabelAreaPosition::Bottom, 40)
-                                    .build_cartesian_2d(start_date..end_date, min_price..max_price)
-                                    .unwrap();
-
-                                chart.configure_mesh()
-                                    .axis_style(WHITE)
-                                    .bold_line_style(WHITE.mix(0.3))
-                                    .light_line_style(TRANSPARENT)
-                                    .label_style(("sans-serif", 15).into_font().color(&WHITE))
-                                    .x_labels(x_labels)
-                                    .y_labels(y_labels)
-                                    .x_label_formatter(&|d| d.format("%b %e").to_string())
-                                    .y_label_formatter(&|y| {
-                                        if use_decimals {
-                                            format!("{:.2}", y)
-                                        } else {
-                                            format!("{:.0}", y)
-                                        }
-                                    })
-                                    .draw().unwrap();
-
-                                chart.draw_series(
-                                    LineSeries::new(
-                                        quotes.iter().map(|q| (
-                                            DateTime::from_timestamp(q.timestamp as i64, 0).unwrap(),
-                                            q.close
-                                        )),
-                                        color,
-                                    )
-                                ).unwrap();
-                            }
-                            
-                            // Convert RGB buffer to 0RGB u32 buffer
-                            for (i, chunk) in pixel_buffer.chunks(3).enumerate() {
-                                if i < buffer.len() {
-                                    let r = chunk[0] as u32;
-                                    let g = chunk[1] as u32;
-                                    let b = chunk[2] as u32;
-                                    // Simple keying: if 0,0,0 (black), keep transparent?
-                                    // No, we cleared to 0. Plotters cleared to what?
-                                    // BitMapBackend default fill?
-                                    // We called root.fill(&TRANSPARENT)... plotters TRANSPARENT is usually weird in Bitmap.
-                                    // Let's assume we want to draw pixels that are NOT background.
-                                    // Actually, let's just add the color.
-                                    if r != 0 || g != 0 || b != 0 {
-                                        buffer[i] = (r << 16) | (g << 8) | b;
-                                    }
-                                }
-                            }
-                        }
-
-                        buffer.present().ok();
-                    }
-                    // window.request_redraw(); // REMOVED to fix high CPU usage
-                }
-            },
-            _ => (),
-        }
-    }
-    
-    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
-         use tray_icon::menu::MenuEvent;
-         while let Ok(event) = MenuEvent::receiver().try_recv() {
-             // We only have one item "Quit", so exit on any event for now
-             if event.id.0 == "2" { // Hack: check ID? Or just exit. 
-                 // Wait, MenuItem::new returns item with auto ID?
-                 // Let's just assume it's quit for now, or match text.
-                 // Actually, best to store ID or just exit since it's the only item.
-                 event_loop.exit();
-             }
-             // Actually, `tray-icon` docs say IDs are auto-generated if constructed simply.
-             // But we can check since we only have Quit.
-             event_loop.exit();
+        // Open initial chart if no windows and no settings
+        if self.windows.is_empty() {
+             // Optional: Don't open chart by default?
+             // User asked for "create/delete instances" in settings. 
+             // Maybe start with just Tray? Or one default logic.
+             // Previous code started with AAPL. Let's keep it.
+             // We can check if we want to restore from file later (persistence).
+             let chart = ChartWindow::new(event_loop, self.proxy.clone(), "AAPL".to_string());
+             let id = chart.window_id();
+             self.windows.insert(id, Box::new(chart));
+             self.chart_ids.push((id, "AAPL".to_string()));
          }
     }
 
+    fn window_event(&mut self, event_loop: &ActiveEventLoop, window_id: WindowId, event: WindowEvent) {
+        if let WindowEvent::CloseRequested = event {
+            self.windows.remove(&window_id);
+            self.chart_ids.retain(|(id, _)| *id != window_id);
+            
+            if Some(window_id) == self.settings_id {
+                self.settings_id = None;
+            } else {
+                // If a chart closed, update settings list
+                self.refresh_settings_window();
+            }
+            return;
+        }
 
-    fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: UserEvent) {
+        if let Some(handler) = self.windows.get_mut(&window_id) {
+            handler.handle_event(event, event_loop);
+        }
+    }
+
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+         use tray_icon::{TrayIconEvent, MouseButton, MouseButtonState};
+
+         while let Ok(event) = MenuEvent::receiver().try_recv() {
+             let id = event.id.0;
+             if let Some(sid) = &self.settings_menu_id {
+                 if id == *sid {
+                     let _ = self.proxy.send_event(UserEvent::OpenSettings);
+                 }
+             }
+             if let Some(qid) = &self.quit_menu_id {
+                 if id == *qid {
+                     event_loop.exit();
+                 }
+             }
+         }
+
+         while let Ok(event) = TrayIconEvent::receiver().try_recv() {
+             if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = event {
+                  let _ = self.proxy.send_event(UserEvent::OpenSettings);
+             }
+         }
+    }
+    
+    fn user_event(&mut self, event_loop: &ActiveEventLoop, event: UserEvent) {
         match event {
-            UserEvent::DataLoaded(new_quotes, currency) => {
-                println!("Loaded {} quotes, Currency: {}", new_quotes.len(), currency);
-                self.quotes = Some(new_quotes);
-                self.currency = currency;
-                if let Some(window) = &self.window {
-                    window.request_redraw();
-                }
-            }
-            UserEvent::Error(e) => {
-                eprintln!("Error: {}", e);
-            }
+             UserEvent::DataLoaded(symbol, quotes, currency) => {
+                 let targets: Vec<WindowId> = self.chart_ids.iter()
+                     .filter(|(_, s)| *s == symbol)
+                     .map(|(id, _)| *id)
+                     .collect();
+                
+                 for id in targets {
+                     if let Some(h) = self.windows.get_mut(&id) {
+                         h.update_data(quotes.clone(), currency.clone());
+                     }
+                 }
+             },
+             UserEvent::Error(symbol, e) => {
+                 eprintln!("Error fetching data for {}: {}", symbol, e);
+             },
+             UserEvent::AddChart(symbol) => {
+                 let chart = ChartWindow::new(event_loop, self.proxy.clone(), symbol.clone());
+                 let id = chart.window_id();
+                 self.windows.insert(id, Box::new(chart));
+                 self.chart_ids.push((id, symbol));
+                 self.refresh_settings_window();
+             },
+             UserEvent::DeleteChart(id) => {
+                 self.windows.remove(&id);
+                 self.chart_ids.retain(|(wid, _)| *wid != id);
+                 self.refresh_settings_window();
+             },
+             UserEvent::OpenSettings => {
+                 if self.settings_id.is_none() {
+                     let mut settings = SettingsWindow::new(event_loop, self.proxy.clone());
+                     settings.update_active_charts(self.chart_ids.clone());
+                     let id = settings.window_id();
+                     self.windows.insert(id, Box::new(settings));
+                     self.settings_id = Some(id);
+                 } else {
+                     if let Some(id) = self.settings_id {
+                        if let Some(_w) = self.windows.get(&id) {
+                            // Focus or request redraw
+                            // w.window().focus_window(); // accessing Window from handler?
+                            // WindowHandler doesn't expose Window.
+                            // Handlers usually have `focus()` method?
+                            // For now just ignore.
+                        }
+                     }
+                 }
+             }
         }
     }
 }
@@ -314,16 +178,16 @@ fn main() {
     event_loop.set_control_flow(ControlFlow::Wait);
     
     let proxy = event_loop.create_proxy();
+    
     let mut app = App { 
-        window: None, 
-        surface: None, 
-        context: None, 
+        windows: HashMap::new(),
         proxy,
-        quotes: None,
-        currency: "USD".to_string(),
-        symbol: "AAPL".to_string(),
         tray_icon: None,
-        tray_menu: None
+        tray_menu: None,
+        chart_ids: Vec::new(),
+        settings_id: None,
+        settings_menu_id: None,
+        quit_menu_id: None,
     };
     
     event_loop.run_app(&mut app).unwrap();

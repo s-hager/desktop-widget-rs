@@ -1,0 +1,22 @@
+use winit::event::WindowEvent;
+use winit::window::WindowId;
+use winit::event_loop::ActiveEventLoop;
+use yahoo_finance_api as yahoo;
+
+#[derive(Debug)]
+pub enum UserEvent {
+    DataLoaded(String, Vec<yahoo::Quote>, String), // Symbol, Quotes, Currency
+    Error(String, String), // Symbol, Error Message
+    AddChart(String),
+    DeleteChart(WindowId),
+    OpenSettings,
+}
+
+pub trait WindowHandler {
+    fn window_id(&self) -> WindowId;
+    fn handle_event(&mut self, event: WindowEvent, event_loop: &ActiveEventLoop);
+    fn resize(&mut self, size: winit::dpi::PhysicalSize<u32>);
+    fn redraw(&mut self);
+    fn update_data(&mut self, quotes: Vec<yahoo::Quote>, currency: String);
+    fn update_active_charts(&mut self, _charts: Vec<(WindowId, String)>) {}
+}
