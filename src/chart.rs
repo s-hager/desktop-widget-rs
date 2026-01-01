@@ -52,10 +52,14 @@ struct WINDOWCOMPOSITIONATTRIBDATA {
 #[derive(PartialEq)]
 #[repr(C)]
 #[allow(non_camel_case_types)]
+// #[allow(dead_code)]
 enum ACCENT_STATE {
-    ACCENT_DISABLED = 0,
-    ACCENT_ENABLE_BLURBEHIND = 3,
+    // ACCENT_DISABLED = 0,
+    // ACCENT_ENABLE_GRADIENT = 1,
+    // ACCENT_ENABLE_TRANSPARENTGRADIENT = 2,
+    // ACCENT_ENABLE_BLURBEHIND = 3,
     ACCENT_ENABLE_ACRYLICBLURBEHIND = 4,
+    // ACCENT_INVALID_STATE = 5,
 }
 
 #[cfg(target_os = "windows")]
@@ -206,7 +210,6 @@ pub struct ChartWindow {
     // context is held by surface usually, but we might need to keep it if we recreate surface? 
     // Softbuffer 0.4: Surface::new(&context, window). 
     // Context needs to be kept alive? Yes.
-    #[allow(dead_code)]
     context: Context<Rc<Window>>, 
     symbol: String,
     currency: String,
@@ -304,9 +307,6 @@ impl WindowHandler for ChartWindow {
         self.window.id()
     }
 
-    fn is_locked(&self) -> bool {
-        self.locked
-    }
 
     fn set_locked(&mut self, locked: bool) {
         self.locked = locked;

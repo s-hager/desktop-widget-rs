@@ -24,6 +24,5 @@ pub trait WindowHandler {
     fn update_active_charts(&mut self, _charts: Vec<(WindowId, String, bool)>) {}
     fn get_config(&self) -> Option<ChartConfig> { None }
     fn set_locked(&mut self, _locked: bool) {}
-    fn is_locked(&self) -> bool { true }
     fn refresh(&mut self) {}
 }

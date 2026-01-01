@@ -16,7 +16,7 @@ use yahoo_finance_api as yahoo;
 pub struct SettingsWindow {
     window: Rc<Window>,
     surface: Surface<Rc<Window>, Rc<Window>>,
-    #[allow(dead_code)]
+    // #[allow(dead_code)]
     context: Context<Rc<Window>>,
     proxy: EventLoopProxy<UserEvent>,
     

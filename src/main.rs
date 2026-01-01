@@ -21,7 +21,6 @@ struct App {
     windows: HashMap<WindowId, Box<dyn WindowHandler>>,
     proxy: EventLoopProxy<UserEvent>,
     tray_icon: Option<TrayIcon>,
-    #[allow(dead_code)]
     tray_menu: Option<Menu>,
     // Store IDs to manage settings list
     chart_ids: Vec<(WindowId, String, bool)>, 
