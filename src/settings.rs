@@ -10,7 +10,8 @@ use plotters::prelude::*;
 use plotters::backend::BitMapBackend;
 use crate::common::{WindowHandler, UserEvent};
 use yahoo_finance_api as yahoo;
-
+use auto_launch::AutoLaunchBuilder;
+use std::env;
 
 
 pub struct SettingsWindow {
@@ -26,6 +27,7 @@ pub struct SettingsWindow {
     active_charts: Vec<(WindowId, String, bool)>, // (Id, Symbol, Locked)
     cursor_pos: (f64, f64),
     current_interval: u64,
+    startup_enabled: bool,
 }
 
 impl SettingsWindow {
@@ -44,6 +46,19 @@ impl SettingsWindow {
              surface.resize(width, height).unwrap();
         }
 
+        let startup_enabled = if let Ok(exe_path) = env::current_exe() {
+            if let Some(path_str) = exe_path.to_str() {
+                 let auto = AutoLaunchBuilder::new()
+                    .set_app_name("DesktopStockWidget")
+                    .set_app_path(path_str)
+                    .set_use_launch_agent(false) 
+                    .build();
+                 if let Ok(auto) = auto {
+                     auto.is_enabled().unwrap_or(false)
+                 } else { false }
+            } else { false }
+        } else { false };
+
         Self {
             window,
             surface,
@@ -54,6 +69,7 @@ impl SettingsWindow {
             active_charts: Vec::new(),
             cursor_pos: (0.0, 0.0),
             current_interval: initial_interval,
+            startup_enabled,
         }
     }
 
@@ -118,8 +134,31 @@ impl WindowHandler for SettingsWindow {
 
                 // Hit test Interval Buttons
                 // Label at y=360? Bottom of window is 400.
-                // - Button: 280, 360, 30x25
-                // + Button: 350, 360, 30x25
+                
+                // Auto Startup Toggle (y=320)
+                let toggle_y = 320.0;
+                if x >= 280.0 && x <= 330.0 && y >= toggle_y && y <= toggle_y + 20.0 {
+                    self.startup_enabled = !self.startup_enabled;
+                    
+                    if let Ok(exe_path) = env::current_exe() {
+                        if let Some(path_str) = exe_path.to_str() {
+                             let auto = AutoLaunchBuilder::new()
+                                .set_app_name("DesktopStockWidget")
+                                .set_app_path(path_str)
+                                .build();
+                             
+                             if let Ok(auto) = auto {
+                                 if self.startup_enabled {
+                                     let _ = auto.enable();
+                                 } else {
+                                     let _ = auto.disable();
+                                 }
+                             }
+                        }
+                    }
+                    self.window.request_redraw();
+                }
+
                 let footer_y = 360.0;
                 
                 // Minus
@@ -272,6 +311,21 @@ impl WindowHandler for SettingsWindow {
                          }
 
                     }
+
+                    // Auto Startup Toggle
+                    let toggle_y = 320;
+                    root.draw_text("Auto Startup:", &font.clone().color(&WHITE), (20, toggle_y + 3)).unwrap();
+                    
+                    // Toggle Switch Background (Rounded Rect)
+                    let toggle_rect_color = if self.startup_enabled { RGBColor(0, 200, 100) } else { RGBColor(80, 80, 80) };
+                    // 50px wide, 20px high
+                    let tx = 280;
+                    root.draw(&Rectangle::new([(tx, toggle_y), (tx + 50, toggle_y + 20)], toggle_rect_color.filled())).unwrap();
+                    
+                    // Knob
+                    let knob_x = if self.startup_enabled { tx + 30 } else { tx };
+                    root.draw(&Rectangle::new([(knob_x, toggle_y), (knob_x + 20, toggle_y + 20)], WHITE.filled())).unwrap();
+
 
                     // Interval Control Footer
                     let footer_y = 360;
