@@ -8,7 +8,7 @@ use std::num::NonZeroU32;
 use plotters::prelude::*;
 use plotters::backend::BitMapBackend;
 use crate::common::{WindowHandler, UserEvent};
-use chrono::DateTime;
+use chrono::{DateTime, Local};
 use winit::platform::windows::WindowAttributesExtWindows;
 #[cfg(target_os = "macos")]
 use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial};
@@ -212,6 +212,8 @@ pub struct ChartWindow {
     currency: String,
     quotes: Option<Vec<yahoo::Quote>>,
     locked: bool,
+    proxy: EventLoopProxy<UserEvent>,
+    last_fetch_time: Option<DateTime<Local>>,
 }
 
 use crate::config::ChartConfig;
@@ -248,43 +250,52 @@ impl ChartWindow {
              surface.resize(width, height).unwrap();
         }
 
-        // Spawn fetching task
-        let proxy = proxy.clone();
-        let symbol_clone = symbol.clone();
-        std::thread::spawn(move || {
-            let rt = tokio::runtime::Runtime::new().unwrap();
-            rt.block_on(async {
-                let provider = yahoo::YahooConnector::new().unwrap();
-                match provider.get_quote_range(&symbol_clone, "1d", "1mo").await {
-                    Ok(response) => {
-                         let currency = response.metadata().ok().and_then(|m| m.currency.clone()).unwrap_or("USD".to_string());
-                         if let Ok(quotes) = response.quotes() {
-                             let _ = proxy.send_event(UserEvent::DataLoaded(symbol_clone, quotes, currency));
-                         } else {
-                             let _ = proxy.send_event(UserEvent::Error(symbol_clone, "No quotes found".into()));
-                         }
-                    },
-                    Err(e) => {
-                        let _ = proxy.send_event(UserEvent::Error(symbol_clone, format!("Fetch error: {}", e)));
-                    }
-                }
-            });
-        });
 
-        let chart = Self {
+        
+        let mut chart = Self {
             window,
             surface,
             context,
-            symbol,
+            symbol: symbol.clone(),
             currency: "USD".to_string(),
             quotes: None,
             locked: true,
+            proxy,
+            last_fetch_time: None,
         };
         
         // Initialize subclass
         update_subclass(&chart.window, true);
         
+        // Initial Fetch
+        chart.refresh();
+
         chart
+    }
+
+    fn fetch_data(&self) {
+        let proxy = self.proxy.clone();
+        let symbol = self.symbol.clone();
+        
+        std::thread::spawn(move || {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            rt.block_on(async {
+                let provider = yahoo::YahooConnector::new().unwrap();
+                match provider.get_quote_range(&symbol, "1d", "1mo").await {
+                    Ok(response) => {
+                         let currency = response.metadata().ok().and_then(|m| m.currency.clone()).unwrap_or("USD".to_string());
+                         if let Ok(quotes) = response.quotes() {
+                             let _ = proxy.send_event(UserEvent::DataLoaded(symbol, quotes, currency));
+                         } else {
+                             let _ = proxy.send_event(UserEvent::Error(symbol, "No quotes found".into()));
+                         }
+                    },
+                    Err(e) => {
+                        let _ = proxy.send_event(UserEvent::Error(symbol, format!("Fetch error: {}", e)));
+                    }
+                }
+            });
+        });
     }
 }
 
@@ -301,6 +312,10 @@ impl WindowHandler for ChartWindow {
         self.locked = locked;
         update_subclass(&self.window, locked);
         self.window.request_redraw();
+    }
+
+    fn refresh(&mut self) {
+        self.fetch_data();
     }
     
     fn get_config(&self) -> Option<ChartConfig> {
@@ -346,6 +361,7 @@ impl WindowHandler for ChartWindow {
     fn update_data(&mut self, quotes: Vec<yahoo::Quote>, currency: String) {
         self.quotes = Some(quotes);
         self.currency = currency;
+        self.last_fetch_time = Some(Local::now());
         self.window.request_redraw();
     }
 
@@ -458,6 +474,17 @@ impl WindowHandler for ChartWindow {
                             color,
                         )
                     ).unwrap();
+                    
+                    // Draw Timestamp
+                    if let Some(ts) = self.last_fetch_time {
+                        let time_str = format!("{}", ts.format("%Y-%m-%d %H:%M:%S"));
+                        let ts_font = ("sans-serif", 14).into_font();
+                        let (tw, th) = ts_font.box_size(&time_str).unwrap();
+                        // Bottom Right
+                        let tx = (width as i32) - (tw as i32) - 10;
+                        let ty = (height as i32) - (th as i32) - 5;
+                        root.draw_text(&time_str, &ts_font.color(&WHITE.mix(0.5)), (tx, ty)).unwrap();
+                    }
                 }
                 
                 for (i, chunk) in pixel_buffer.chunks(3).enumerate() {

@@ -12,6 +12,7 @@ pub enum UserEvent {
     DeleteChart(WindowId),
     OpenSettings,
     ToggleLock(WindowId, bool),
+    UpdateInterval(u64),
 }
 
 pub trait WindowHandler {
@@ -24,4 +25,5 @@ pub trait WindowHandler {
     fn get_config(&self) -> Option<ChartConfig> { None }
     fn set_locked(&mut self, _locked: bool) {}
     fn is_locked(&self) -> bool { true }
+    fn refresh(&mut self) {}
 }

@@ -31,6 +31,7 @@ struct App {
     config: AppConfig,
     dirty: bool,
     last_save_time: std::time::Instant,
+    last_auto_refresh: std::time::Instant,
 }
 
 impl App {
@@ -49,7 +50,10 @@ impl App {
                 charts.push(config);
             }
         }
-        let app_config = AppConfig { charts };
+        let app_config = AppConfig { 
+            charts,
+            update_interval_minutes: self.config.update_interval_minutes,
+        };
         app_config.save();
     }
 }
@@ -144,6 +148,28 @@ impl ApplicationHandler<UserEvent> for App {
              self.last_save_time = std::time::Instant::now();
          }
 
+         // Auto-Refresh
+         let refresh_interval = std::time::Duration::from_secs(self.config.update_interval_minutes * 60);
+         if self.last_auto_refresh.elapsed() >= refresh_interval {
+             for handler in self.windows.values_mut() {
+                 handler.refresh();
+             }
+             self.last_auto_refresh = std::time::Instant::now();
+         }
+         
+         // Calculate next wake up
+         let next_refresh = self.last_auto_refresh + refresh_interval;
+         let mut next_wake = next_refresh;
+
+         if self.dirty {
+             let next_save = self.last_save_time + std::time::Duration::from_millis(500);
+             if next_save < next_wake {
+                 next_wake = next_save;
+             }
+         }
+         
+         event_loop.set_control_flow(ControlFlow::WaitUntil(next_wake));
+
          use tray_icon::{TrayIconEvent, MouseButton, MouseButtonState};
 
          while let Ok(event) = MenuEvent::receiver().try_recv() {
@@ -214,9 +240,14 @@ impl ApplicationHandler<UserEvent> for App {
                  }
                  self.refresh_settings_window();
              },
+             UserEvent::UpdateInterval(minutes) => {
+                 self.config.update_interval_minutes = minutes;
+                 self.last_auto_refresh = std::time::Instant::now(); // Reset timer on change
+                 self.save_config();
+             },
              UserEvent::OpenSettings => {
                  if self.settings_id.is_none() {
-                     let mut settings = SettingsWindow::new(event_loop, self.proxy.clone());
+                     let mut settings = SettingsWindow::new(event_loop, self.proxy.clone(), self.config.update_interval_minutes);
                      settings.update_active_charts(self.chart_ids.clone());
                      let id = settings.window_id();
                      self.windows.insert(id, Box::new(settings));
@@ -255,6 +286,7 @@ fn main() {
         config: AppConfig::default(),
         dirty: false,
         last_save_time: std::time::Instant::now(),
+        last_auto_refresh: std::time::Instant::now(),
     };
     
     event_loop.run_app(&mut app).unwrap();

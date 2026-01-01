@@ -14,6 +14,12 @@ pub struct ChartConfig {
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub struct AppConfig {
     pub charts: Vec<ChartConfig>,
+    #[serde(default = "default_interval")]
+    pub update_interval_minutes: u64,
+}
+
+fn default_interval() -> u64 {
+    30
 }
 
 impl AppConfig {

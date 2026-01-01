@@ -25,10 +25,11 @@ pub struct SettingsWindow {
     is_focused: bool,
     active_charts: Vec<(WindowId, String, bool)>, // (Id, Symbol, Locked)
     cursor_pos: (f64, f64),
+    current_interval: u64,
 }
 
 impl SettingsWindow {
-    pub fn new(event_loop: &ActiveEventLoop, proxy: EventLoopProxy<UserEvent>) -> Self {
+    pub fn new(event_loop: &ActiveEventLoop, proxy: EventLoopProxy<UserEvent>, initial_interval: u64) -> Self {
         let window_attributes = Window::default_attributes()
             .with_title("Settings")
             .with_inner_size(winit::dpi::LogicalSize::new(400.0, 400.0))
@@ -52,6 +53,7 @@ impl SettingsWindow {
             is_focused: false,
             active_charts: Vec::new(),
             cursor_pos: (0.0, 0.0),
+            current_interval: initial_interval,
         }
     }
 
@@ -110,6 +112,27 @@ impl WindowHandler for SettingsWindow {
                     if x >= 300.0 && x <= 360.0 && y >= btn_y as f64 && y <= (btn_y + 25) as f64 {
                          let _ = self.proxy.send_event(UserEvent::ToggleLock(*id, !locked));
                     }
+                }
+                
+                // Hit test Lock Button (x: 300-360) already handled in loop
+
+                // Hit test Interval Buttons
+                // Label at y=360? Bottom of window is 400.
+                // - Button: 280, 360, 30x25
+                // + Button: 350, 360, 30x25
+                let footer_y = 360.0;
+                
+                // Minus
+                if x >= 280.0 && x <= 310.0 && y >= footer_y && y <= footer_y + 25.0 {
+                    if self.current_interval > 5 {
+                        self.current_interval -= 5;
+                        let _ = self.proxy.send_event(UserEvent::UpdateInterval(self.current_interval));
+                    }
+                }
+                // Plus
+                if x >= 320.0 && x <= 350.0 && y >= footer_y && y <= footer_y + 25.0 {
+                    self.current_interval += 5;
+                    let _ = self.proxy.send_event(UserEvent::UpdateInterval(self.current_interval));
                 }
                 
                 self.window.request_redraw();
@@ -247,7 +270,27 @@ impl WindowHandler for SettingsWindow {
                              ];
                              root.draw(&PathElement::new(points, outline_color.stroke_width(2))).unwrap();
                          }
+
                     }
+
+                    // Interval Control Footer
+                    let footer_y = 360;
+                    root.draw_text("Update Interval (min):", &font.clone().color(&WHITE), (20, footer_y + 3)).unwrap();
+                    
+                    // Value
+                    root.draw_text(&format!("{}", self.current_interval), &font.clone().color(&WHITE), (240, footer_y + 3)).unwrap();
+
+                    // - Button
+                    let min_hover = self.cursor_pos.0 >= 280.0 && self.cursor_pos.0 <= 310.0 && self.cursor_pos.1 >= footer_y as f64 && self.cursor_pos.1 <= (footer_y + 25) as f64;
+                    let min_color = if min_hover { RGBColor(100, 100, 100) } else { RGBColor(80, 80, 80) };
+                    root.draw(&Rectangle::new([(280, footer_y), (310, footer_y + 25)], min_color.filled())).unwrap();
+                    root.draw_text("-", &font.clone().color(&WHITE), (290, footer_y + 3)).unwrap();
+
+                    // + Button
+                    let plus_hover = self.cursor_pos.0 >= 320.0 && self.cursor_pos.0 <= 350.0 && self.cursor_pos.1 >= footer_y as f64 && self.cursor_pos.1 <= (footer_y + 25) as f64;
+                    let plus_color = if plus_hover { RGBColor(100, 100, 100) } else { RGBColor(80, 80, 80) };
+                    root.draw(&Rectangle::new([(320, footer_y), (350, footer_y + 25)], plus_color.filled())).unwrap();
+                    root.draw_text("+", &font.clone().color(&WHITE), (330, footer_y + 3)).unwrap();
                 }
 
                 // Copy RGB to u32 0RGB
