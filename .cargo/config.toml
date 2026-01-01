@@ -1,0 +1,4 @@
+# https://users.rust-lang.org/t/windows-binaries-vcruntime140-dll-not-found-unless-crt-static/94517
+# statically link the C runtime (so we dont get error in windows sandbox where msvc runtime is missing)
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
