@@ -28,6 +28,7 @@ pub struct SettingsWindow {
     cursor_pos: (f64, f64),
     current_interval: u64,
     startup_enabled: bool,
+    error_message: Option<String>,
 }
 
 impl SettingsWindow {
@@ -70,8 +71,11 @@ impl SettingsWindow {
             cursor_pos: (0.0, 0.0),
             current_interval: initial_interval,
             startup_enabled,
+            error_message: None,
         }
     }
+
+
 
     pub fn update_active_charts(&mut self, charts: Vec<(WindowId, String, bool)>) {
         self.active_charts = charts;
@@ -92,6 +96,12 @@ impl WindowHandler for SettingsWindow {
         self.active_charts = charts;
         self.window.request_redraw();
     }
+
+    fn show_error(&mut self, message: String) {
+        self.error_message = Some(message);
+        self.window.request_redraw();
+    }
+
 
     fn handle_event(&mut self, event: WindowEvent, _event_loop: &ActiveEventLoop) {
         match event {
@@ -178,13 +188,15 @@ impl WindowHandler for SettingsWindow {
             },
             WindowEvent::KeyboardInput { event, .. } => {
                 if self.is_focused && event.state == ElementState::Pressed {
-                    if let Some(text) = event.text {
-                         // Filter control chars
-                         if !text.chars().any(|c| c.is_control()) {
-                            self.input_text.push_str(&text.to_uppercase());
+                    if let Some(txt) = event.text {
+                         if txt == "\u{8}" { // Backspace
+                             self.input_text.pop();
+                         } else if !txt.chars().any(|c| c.is_control()) {
+                             self.input_text.push_str(&txt.to_uppercase());
                          }
+                         self.error_message = None; // Clear error on typing
+                         self.window.request_redraw();
                     }
-                    
                     match event.logical_key {
                         Key::Named(NamedKey::Backspace) => {
                             self.input_text.pop();
@@ -246,6 +258,11 @@ impl WindowHandler for SettingsWindow {
                     let add_color = if add_hover { RGBColor(50, 150, 255) } else { RGBColor(0, 100, 200) }; 
                     root.draw(&Rectangle::new([(230, 50), (290, 80)], add_color.filled())).unwrap();
                     root.draw_text("Add", &font.clone().color(&WHITE), (245, 55)).unwrap();
+
+                    // Error Message
+                    if let Some(err) = &self.error_message {
+                        root.draw_text(err, &("sans-serif", 15).into_font().color(&RED), (20, 85)).unwrap();
+                    }
 
                     // List Header
                     root.draw_text("Active Charts:", &font.clone().color(&WHITE), (20, 100)).unwrap();

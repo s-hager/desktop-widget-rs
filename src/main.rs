@@ -35,9 +35,19 @@ struct App {
 
 impl App {
     fn refresh_settings_window(&mut self) {
+        // Filter charts to only include those that have data
+        let mut visible_charts = Vec::new();
+        for (id, symbol, locked) in &self.chart_ids {
+            if let Some(handler) = self.windows.get(id) {
+                if handler.has_data() {
+                    visible_charts.push((*id, symbol.clone(), *locked));
+                }
+            }
+        }
+
         if let Some(sid) = self.settings_id {
             if let Some(handler) = self.windows.get_mut(&sid) {
-                handler.update_active_charts(self.chart_ids.clone());
+                handler.update_active_charts(visible_charts);
             }
         }
     }
@@ -45,8 +55,10 @@ impl App {
     fn save_config(&self) {
         let mut charts = Vec::new();
         for handler in self.windows.values() {
-            if let Some(config) = handler.get_config() {
-                charts.push(config);
+            if handler.has_data() {
+                if let Some(config) = handler.get_config() {
+                    charts.push(config);
+                }
             }
         }
         let app_config = AppConfig { 
@@ -210,9 +222,38 @@ impl ApplicationHandler<UserEvent> for App {
                          h.update_data(quotes.clone(), currency.clone());
                      }
                  }
+                 self.refresh_settings_window();
+                 self.save_config();
              },
              UserEvent::Error(symbol, e) => {
                  eprintln!("Error fetching data for {}: {}", symbol, e);
+                 
+                 // Show error in Settings if open
+                 if let Some(sid) = self.settings_id {
+                     if let Some(handler) = self.windows.get_mut(&sid) {
+                         handler.show_error(format!("Error: {}", e)); // Or just "Symbol not found"
+                     }
+                 }
+
+                 // If this was a new window (no data yet), delete it
+                 // We need to find the ID associated with this symbol
+                 let target_id = self.chart_ids.iter()
+                    .find(|(_, s, _)| *s == symbol)
+                    .map(|(id, _, _)| *id);
+
+                 if let Some(id) = target_id {
+                     // Check if it has data
+                     let should_delete = if let Some(h) = self.windows.get(&id) {
+                         !h.has_data()
+                     } else { false };
+
+                     if should_delete {
+                         self.windows.remove(&id);
+                         self.chart_ids.retain(|(wid, _, _)| *wid != id);
+                         self.refresh_settings_window();
+                         self.save_config();
+                     }
+                 }
              },
              UserEvent::AddChart(symbol) => {
                  let chart = ChartWindow::new(event_loop, self.proxy.clone(), symbol.clone(), None);
@@ -220,7 +261,6 @@ impl ApplicationHandler<UserEvent> for App {
                  self.windows.insert(id, Box::new(chart));
                  self.chart_ids.push((id, symbol, true));
                  self.refresh_settings_window();
-                 self.save_config();
              },
              UserEvent::DeleteChart(id) => {
                  self.windows.remove(&id);

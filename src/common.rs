@@ -25,4 +25,6 @@ pub trait WindowHandler {
     fn get_config(&self) -> Option<ChartConfig> { None }
     fn set_locked(&mut self, _locked: bool) {}
     fn refresh(&mut self) {}
+    fn show_error(&mut self, _message: String) {}
+    fn has_data(&self) -> bool { true }
 }

@@ -229,7 +229,8 @@ impl ChartWindow {
             .with_transparent(true)
             .with_decorations(false)
             .with_window_level(WindowLevel::AlwaysOnBottom)
-            .with_skip_taskbar(true); 
+            .with_skip_taskbar(true)
+            .with_visible(false); 
 
         if let Some(cfg) = &config {
             window_attributes = window_attributes
@@ -317,6 +318,10 @@ impl WindowHandler for ChartWindow {
     fn refresh(&mut self) {
         self.fetch_data();
     }
+
+    fn has_data(&self) -> bool {
+        self.last_fetch_time.is_some()
+    }
     
     fn get_config(&self) -> Option<ChartConfig> {
         let size = self.window.inner_size();
@@ -362,6 +367,7 @@ impl WindowHandler for ChartWindow {
         self.quotes = Some(quotes);
         self.currency = currency;
         self.last_fetch_time = Some(Local::now());
+        self.window.set_visible(true);
         self.window.request_redraw();
     }
 
