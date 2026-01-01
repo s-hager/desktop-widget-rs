@@ -11,7 +11,7 @@ pub struct ChartConfig {
     pub height: u32,
 }
 
-#[derive(Serialize, Deserialize, Debug, Default)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct AppConfig {
     pub charts: Vec<ChartConfig>,
     #[serde(default = "default_interval")]
@@ -20,6 +20,15 @@ pub struct AppConfig {
 
 fn default_interval() -> u64 {
     30
+}
+
+impl Default for AppConfig {
+    fn default() -> Self {
+        Self {
+            charts: Vec::new(),
+            update_interval_minutes: default_interval(),
+        }
+    }
 }
 
 impl AppConfig {
