@@ -217,6 +217,7 @@ pub struct ChartWindow {
     locked: bool,
     proxy: EventLoopProxy<UserEvent>,
     last_fetch_time: Option<DateTime<Local>>,
+    timeframe: String,
 }
 
 use crate::config::ChartConfig;
@@ -266,6 +267,7 @@ impl ChartWindow {
             locked: true,
             proxy,
             last_fetch_time: None,
+            timeframe: config.as_ref().and_then(|c| c.timeframe.clone()).unwrap_or("1M".to_string()),
         };
         
         // Initialize subclass
@@ -281,11 +283,23 @@ impl ChartWindow {
         let proxy = self.proxy.clone();
         let symbol = self.symbol.clone();
         
+        let timeframe = self.timeframe.clone();
+        
         std::thread::spawn(move || {
             let rt = tokio::runtime::Runtime::new().unwrap();
             rt.block_on(async {
                 let provider = yahoo::YahooConnector::new().unwrap();
-                match provider.get_quote_range(&symbol, "1d", "1mo").await {
+                let (interval, range) = match timeframe.as_str() {
+                    "1D" => ("2m", "1d"),
+                    "1W" => ("15m", "5d"),
+                    "1M" => ("1d", "1mo"),
+                    "3M" => ("1d", "3mo"),
+                    "6M" => ("1d", "6mo"),
+                    "1Y" => ("1d", "1y"),
+                    "YTD" => ("1d", "ytd"),
+                    _ => ("1d", "1mo"),
+                };
+                match provider.get_quote_range(&symbol, interval, range).await {
                     Ok(response) => {
                          let currency = response.metadata().ok().and_then(|m| m.currency.clone()).unwrap_or("USD".to_string());
                          if let Ok(quotes) = response.quotes() {
@@ -319,6 +333,11 @@ impl WindowHandler for ChartWindow {
         self.fetch_data();
     }
 
+    fn set_timeframe(&mut self, timeframe: String) {
+        self.timeframe = timeframe;
+        self.fetch_data(); // Auto refresh on change
+    }
+
     fn has_data(&self) -> bool {
         self.last_fetch_time.is_some()
     }
@@ -332,6 +351,7 @@ impl WindowHandler for ChartWindow {
             y: pos.y,
             width: size.width,
             height: size.height,
+            timeframe: Some(self.timeframe.clone()),
         })
     }
 

@@ -23,7 +23,7 @@ struct App {
     tray_icon: Option<TrayIcon>,
     tray_menu: Option<Menu>,
     // Store IDs to manage settings list
-    chart_ids: Vec<(WindowId, String, bool)>, 
+    chart_ids: Vec<(WindowId, String, bool, String)>, 
     settings_id: Option<WindowId>,
     settings_menu_id: Option<String>,
     quit_menu_id: Option<String>,
@@ -37,10 +37,10 @@ impl App {
     fn refresh_settings_window(&mut self) {
         // Filter charts to only include those that have data
         let mut visible_charts = Vec::new();
-        for (id, symbol, locked) in &self.chart_ids {
+        for (id, symbol, locked, timeframe) in &self.chart_ids {
             if let Some(handler) = self.windows.get(id) {
                 if handler.has_data() {
-                    visible_charts.push((*id, symbol.clone(), *locked));
+                    visible_charts.push((*id, symbol.clone(), *locked, timeframe.clone()));
                 }
             }
         }
@@ -104,13 +104,14 @@ impl ApplicationHandler<UserEvent> for App {
                  let chart = ChartWindow::new(event_loop, self.proxy.clone(), "AAPL".to_string(), None);
                  let id = chart.window_id();
                  self.windows.insert(id, Box::new(chart));
-                 self.chart_ids.push((id, "AAPL".to_string(), true));
+                 self.chart_ids.push((id, "AAPL".to_string(), true, "1M".to_string()));
             } else {
                  for chart_cfg in &self.config.charts {
                      let chart = ChartWindow::new(event_loop, self.proxy.clone(), chart_cfg.symbol.clone(), Some(chart_cfg.clone()));
                      let id = chart.window_id();
                      self.windows.insert(id, Box::new(chart));
-                     self.chart_ids.push((id, chart_cfg.symbol.clone(), true));
+                     let tf = chart_cfg.timeframe.clone().unwrap_or("1M".to_string());
+                     self.chart_ids.push((id, chart_cfg.symbol.clone(), true, tf));
                  }
             }
          }
@@ -119,7 +120,7 @@ impl ApplicationHandler<UserEvent> for App {
     fn window_event(&mut self, event_loop: &ActiveEventLoop, window_id: WindowId, event: WindowEvent) {
         if let WindowEvent::CloseRequested = event {
             self.windows.remove(&window_id);
-            self.chart_ids.retain(|(id, _, _)| *id != window_id);
+            self.chart_ids.retain(|(id, _, _, _)| *id != window_id);
             
             if Some(window_id) == self.settings_id {
                 self.settings_id = None;
@@ -213,8 +214,8 @@ impl ApplicationHandler<UserEvent> for App {
         match event {
              UserEvent::DataLoaded(symbol, quotes, currency) => {
                  let targets: Vec<WindowId> = self.chart_ids.iter()
-                     .filter(|(_, s, _)| *s == symbol)
-                     .map(|(id, _, _)| *id)
+                     .filter(|(_, s, _, _)| *s == symbol)
+                     .map(|(id, _, _, _)| *id)
                      .collect();
                 
                  for id in targets {
@@ -238,8 +239,8 @@ impl ApplicationHandler<UserEvent> for App {
                  // If this was a new window (no data yet), delete it
                  // We need to find the ID associated with this symbol
                  let target_id = self.chart_ids.iter()
-                    .find(|(_, s, _)| *s == symbol)
-                    .map(|(id, _, _)| *id);
+                    .find(|(_, s, _, _)| *s == symbol)
+                    .map(|(id, _, _, _)| *id);
 
                  if let Some(id) = target_id {
                      // Check if it has data
@@ -249,7 +250,7 @@ impl ApplicationHandler<UserEvent> for App {
 
                      if should_delete {
                          self.windows.remove(&id);
-                         self.chart_ids.retain(|(wid, _, _)| *wid != id);
+                         self.chart_ids.retain(|(wid, _, _, _)| *wid != id);
                          self.refresh_settings_window();
                          self.save_config();
                      }
@@ -259,18 +260,18 @@ impl ApplicationHandler<UserEvent> for App {
                  let chart = ChartWindow::new(event_loop, self.proxy.clone(), symbol.clone(), None);
                  let id = chart.window_id();
                  self.windows.insert(id, Box::new(chart));
-                 self.chart_ids.push((id, symbol, true));
+                 self.chart_ids.push((id, symbol, true, "1M".to_string()));
                  self.refresh_settings_window();
              },
              UserEvent::DeleteChart(id) => {
                  self.windows.remove(&id);
-                 self.chart_ids.retain(|(wid, _, _)| *wid != id);
+                 self.chart_ids.retain(|(wid, _, _, _)| *wid != id);
                  self.refresh_settings_window();
                  self.save_config();
              },
              UserEvent::ToggleLock(id, locked) => {
                  // Update internal state
-                 if let Some(entry) = self.chart_ids.iter_mut().find(|(wid, _, _)| *wid == id) {
+                 if let Some(entry) = self.chart_ids.iter_mut().find(|(wid, _, _, _)| *wid == id) {
                      entry.2 = locked;
                  }
                  // Update window
@@ -282,6 +283,16 @@ impl ApplicationHandler<UserEvent> for App {
              UserEvent::UpdateInterval(minutes) => {
                  self.config.update_interval_minutes = minutes;
                  self.last_auto_refresh = std::time::Instant::now(); // Reset timer on change
+                 self.save_config();
+             },
+             UserEvent::ChartTimeframe(id, timeframe) => {
+                 if let Some(entry) = self.chart_ids.iter_mut().find(|(wid, _, _, _)| *wid == id) {
+                     entry.3 = timeframe.clone();
+                 }
+                 if let Some(handler) = self.windows.get_mut(&id) {
+                     handler.set_timeframe(timeframe);
+                 }
+                 self.refresh_settings_window();
                  self.save_config();
              },
              UserEvent::OpenSettings => {

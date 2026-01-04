@@ -13,6 +13,7 @@ pub enum UserEvent {
     OpenSettings,
     ToggleLock(WindowId, bool),
     UpdateInterval(u64),
+    ChartTimeframe(WindowId, String),
 }
 
 pub trait WindowHandler {
@@ -21,9 +22,10 @@ pub trait WindowHandler {
     fn resize(&mut self, size: winit::dpi::PhysicalSize<u32>);
     fn redraw(&mut self);
     fn update_data(&mut self, quotes: Vec<yahoo::Quote>, currency: String);
-    fn update_active_charts(&mut self, _charts: Vec<(WindowId, String, bool)>) {}
+    fn update_active_charts(&mut self, _charts: Vec<(WindowId, String, bool, String)>) {}
     fn get_config(&self) -> Option<ChartConfig> { None }
     fn set_locked(&mut self, _locked: bool) {}
+    fn set_timeframe(&mut self, _timeframe: String) {}
     fn refresh(&mut self) {}
     fn show_error(&mut self, _message: String) {}
     fn has_data(&self) -> bool { true }

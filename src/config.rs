@@ -10,6 +10,8 @@ pub struct ChartConfig {
     pub y: i32,
     pub width: u32,
     pub height: u32,
+    #[serde(default)]
+    pub timeframe: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

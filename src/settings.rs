@@ -24,7 +24,7 @@ pub struct SettingsWindow {
     // UI State
     input_text: String,
     is_focused: bool,
-    active_charts: Vec<(WindowId, String, bool)>, // (Id, Symbol, Locked)
+    active_charts: Vec<(WindowId, String, bool, String)>, // (Id, Symbol, Locked, Timeframe)
     cursor_pos: (f64, f64),
     current_interval: u64,
     startup_enabled: bool,
@@ -77,7 +77,7 @@ impl SettingsWindow {
 
 
 
-    pub fn update_active_charts(&mut self, charts: Vec<(WindowId, String, bool)>) {
+    pub fn update_active_charts(&mut self, charts: Vec<(WindowId, String, bool, String)>) {
         self.active_charts = charts;
         self.window.request_redraw();
     }
@@ -92,7 +92,7 @@ impl WindowHandler for SettingsWindow {
         // Not used
     }
 
-    fn update_active_charts(&mut self, charts: Vec<(WindowId, String, bool)>) {
+    fn update_active_charts(&mut self, charts: Vec<(WindowId, String, bool, String)>) {
         self.active_charts = charts;
         self.window.request_redraw();
     }
@@ -127,16 +127,31 @@ impl WindowHandler for SettingsWindow {
                 }
 
                 // Hit test Delete buttons
-                for (i, (id, _, locked)) in self.active_charts.iter().enumerate() {
+                for (i, (id, _, locked, timeframe)) in self.active_charts.iter().enumerate() {
                     let btn_y = 130 + (i as i32 * 30);
-                    // Delete Button (x: 230-290)
-                    if x >= 230.0 && x <= 290.0 && y >= btn_y as f64 && y <= (btn_y + 25) as f64 {
+                    // Delete Button (x: 220-260)
+                    if x >= 220.0 && x <= 260.0 && y >= btn_y as f64 && y <= (btn_y + 25) as f64 {
                         let _ = self.proxy.send_event(UserEvent::DeleteChart(*id));
                     }
                     
-                    // Lock Button (x: 300-360)
-                    if x >= 300.0 && x <= 360.0 && y >= btn_y as f64 && y <= (btn_y + 25) as f64 {
+                    // Lock Button (x: 270-310)
+                    if x >= 270.0 && x <= 310.0 && y >= btn_y as f64 && y <= (btn_y + 25) as f64 {
                          let _ = self.proxy.send_event(UserEvent::ToggleLock(*id, !locked));
+                    }
+
+                    // Timeframe Button (x: 320-370)
+                    if x >= 320.0 && x <= 370.0 && y >= btn_y as f64 && y <= (btn_y + 25) as f64 {
+                        let next_tf = match timeframe.as_str() {
+                            "1D" => "1W",
+                            "1W" => "1M",
+                            "1M" => "3M",
+                            "3M" => "6M",
+                            "6M" => "1Y",
+                            "1Y" => "YTD",
+                            "YTD" => "1D",
+                            _ => "1M",
+                        };
+                        let _ = self.proxy.send_event(UserEvent::ChartTimeframe(*id, next_tf.to_string()));
                     }
                 }
                 
@@ -268,18 +283,18 @@ impl WindowHandler for SettingsWindow {
                     root.draw_text("Active Charts:", &font.clone().color(&WHITE), (20, 100)).unwrap();
 
                     // List
-                    for (i, (_id, symbol, locked)) in self.active_charts.iter().enumerate() {
+                    for (i, (_id, symbol, locked, timeframe)) in self.active_charts.iter().enumerate() {
                          let y = 130 + (i as i32 * 30);
                          root.draw_text(symbol, &font.clone().color(&WHITE), (20, y)).unwrap();
                          
                          // Delete Button
-                         let del_hover = self.cursor_pos.0 >= 230.0 && self.cursor_pos.0 <= 290.0 && self.cursor_pos.1 >= y as f64 && self.cursor_pos.1 <= (y + 25) as f64;
+                         let del_hover = self.cursor_pos.0 >= 220.0 && self.cursor_pos.0 <= 260.0 && self.cursor_pos.1 >= y as f64 && self.cursor_pos.1 <= (y + 25) as f64;
                          let del_color = if del_hover { RGBColor(255, 50, 50) } else { RGBColor(200, 0, 0) };
-                         root.draw(&Rectangle::new([(230, y), (290, y + 25)], del_color.filled())).unwrap();
-                         root.draw_text("Del", &font.clone().color(&WHITE), (245, y + 3)).unwrap();
+                         root.draw(&Rectangle::new([(220, y), (260, y + 25)], del_color.filled())).unwrap();
+                         root.draw_text("Del", &font.clone().color(&WHITE), (225, y + 3)).unwrap();
                          
                          // Lock Button
-                         let lock_hover = self.cursor_pos.0 >= 300.0 && self.cursor_pos.0 <= 360.0 && self.cursor_pos.1 >= y as f64 && self.cursor_pos.1 <= (y + 25) as f64;
+                         let lock_hover = self.cursor_pos.0 >= 270.0 && self.cursor_pos.0 <= 310.0 && self.cursor_pos.1 >= y as f64 && self.cursor_pos.1 <= (y + 25) as f64;
                          
                          let lock_color = if *locked {
                              // Locked: Grayish
@@ -289,11 +304,11 @@ impl WindowHandler for SettingsWindow {
                              if lock_hover { RGBColor(255, 200, 50) } else { RGBColor(200, 150, 0) }
                          };
                          
-                         root.draw(&Rectangle::new([(300, y), (360, y + 25)], lock_color.filled())).unwrap();
+                         root.draw(&Rectangle::new([(270, y), (310, y + 25)], lock_color.filled())).unwrap();
                          
                          // Draw Padlock Icon
                          let icon_color = WHITE;
-                         let bx = 322; // Body X
+                         let bx = 282; // Body X (270 + 12)
                          let by = y + 10; // Body Y
                          
                          // Body: 16x11 Rect
@@ -305,7 +320,7 @@ impl WindowHandler for SettingsWindow {
                          let sw = 12; // Shackle width
                          let sh = 6;  // Shackle height (above body)
                          
-                         let outline_color = icon_color; //.stroke_width(2); implies using into_shape logic if complicated, but PathElement handles stroke
+                         let outline_color = icon_color; 
                          
                          if *locked {
                              // Closed Shackle
@@ -327,6 +342,16 @@ impl WindowHandler for SettingsWindow {
                              root.draw(&PathElement::new(points, outline_color.stroke_width(2))).unwrap();
                          }
 
+                         // Timeframe Button
+                         let tf_hover = self.cursor_pos.0 >= 320.0 && self.cursor_pos.0 <= 370.0 && self.cursor_pos.1 >= y as f64 && self.cursor_pos.1 <= (y + 25) as f64;
+                         let tf_color = if tf_hover { RGBColor(50, 150, 255) } else { RGBColor(0, 100, 200) };
+                         root.draw(&Rectangle::new([(320, y), (370, y + 25)], tf_color.filled())).unwrap();
+                         
+                         // Center text
+                         let tf_text = timeframe.as_str();
+                         let (tf_w, _) = font.box_size(tf_text).unwrap();
+                         let tf_x = 320 + (50 - tf_w as i32) / 2;
+                         root.draw_text(tf_text, &font.clone().color(&WHITE), (tf_x, y + 3)).unwrap();
                     }
 
                     // Auto Startup Toggle
