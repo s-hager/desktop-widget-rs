@@ -580,6 +580,17 @@ impl WindowHandler for ChartWindow {
                         .draw().unwrap();
 
                     chart.draw_series(
+                        AreaSeries::new(
+                            quotes.iter().map(|q| (
+                                DateTime::from_timestamp(q.timestamp as i64, 0).unwrap(),
+                                q.close
+                            )),
+                            min_price,
+                            color.mix(0.15).filled(),
+                        )
+                    ).unwrap();
+
+                    chart.draw_series(
                         LineSeries::new(
                             quotes.iter().map(|q| (
                                 DateTime::from_timestamp(q.timestamp as i64, 0).unwrap(),
