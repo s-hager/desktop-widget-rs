@@ -160,6 +160,11 @@ impl ApplicationHandler<UserEvent> for App {
              self.last_save_time = std::time::Instant::now();
          }
 
+         // Tick all handlers (for debounce/cache logic)
+         for handler in self.windows.values_mut() {
+             handler.tick();
+         }
+
          // Auto-Refresh
          let refresh_interval = std::time::Duration::from_secs(self.config.update_interval_minutes * 60);
          if self.last_auto_refresh.elapsed() >= refresh_interval {
@@ -181,6 +186,15 @@ impl ApplicationHandler<UserEvent> for App {
          }
          
          event_loop.set_control_flow(ControlFlow::WaitUntil(next_wake));
+
+         // If we have pending debounces, we might want to wake up sooner.
+         // Ideally, handlers should provide "next_wake" hint, but for now we rely on user input waking us 
+         // or the next refresh/save interval. To support debounce timeout (e.g. 500ms), we should cap wait time.
+         if next_wake > std::time::Instant::now() + std::time::Duration::from_millis(100) {
+             event_loop.set_control_flow(ControlFlow::WaitUntil(std::time::Instant::now() + std::time::Duration::from_millis(100)));
+         } else {
+             event_loop.set_control_flow(ControlFlow::WaitUntil(next_wake));
+         }
 
          use tray_icon::{TrayIconEvent, MouseButton, MouseButtonState};
 

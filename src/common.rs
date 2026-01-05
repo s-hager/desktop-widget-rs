@@ -27,6 +27,7 @@ pub trait WindowHandler {
     fn set_locked(&mut self, _locked: bool) {}
     fn set_timeframe(&mut self, _timeframe: String) {}
     fn refresh(&mut self) {}
+    fn tick(&mut self) {}
     fn show_error(&mut self, _message: String) {}
     fn has_data(&self) -> bool { true }
 }

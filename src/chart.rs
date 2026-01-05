@@ -9,6 +9,8 @@ use plotters::prelude::*;
 use plotters::backend::BitMapBackend;
 use crate::common::{WindowHandler, UserEvent};
 use chrono::{DateTime, Local};
+use std::collections::HashMap;
+use std::time::Instant;
 use winit::platform::windows::WindowAttributesExtWindows;
 #[cfg(target_os = "macos")]
 use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial};
@@ -218,6 +220,11 @@ pub struct ChartWindow {
     proxy: EventLoopProxy<UserEvent>,
     last_fetch_time: Option<DateTime<Local>>,
     timeframe: String,
+    
+    // Cache: Timeframe -> (Quotes, Currency, FetchTime)
+    cache: HashMap<String, (Vec<yahoo::Quote>, String, DateTime<Local>)>,
+    pending_timeframe: Option<String>,
+    last_timeframe_change: Option<Instant>,
 }
 
 use crate::config::ChartConfig;
@@ -268,6 +275,9 @@ impl ChartWindow {
             proxy,
             last_fetch_time: None,
             timeframe: config.as_ref().and_then(|c| c.timeframe.clone()).unwrap_or("1M".to_string()),
+            cache: HashMap::new(),
+            pending_timeframe: None,
+            last_timeframe_change: None,
         };
         
         // Initialize subclass
@@ -277,6 +287,16 @@ impl ChartWindow {
         chart.refresh();
 
         chart
+    }
+
+    fn load_from_cache(&mut self) {
+        println!("Loading from cache");
+         if let Some((quotes, currency, ts)) = self.cache.get(&self.timeframe) {
+             self.quotes = Some(quotes.clone());
+             self.currency = currency.clone();
+             self.last_fetch_time = Some(*ts);
+             self.window.request_redraw();
+         }
     }
 
     fn fetch_data(&self) {
@@ -289,9 +309,20 @@ impl ChartWindow {
             let rt = tokio::runtime::Runtime::new().unwrap();
             rt.block_on(async {
                 let provider = yahoo::YahooConnector::new().unwrap();
+                // range 	interval
+                // 1d 	    1m, 2m, 5m, 15m, 30m, 90m, 1h, 1d, 5d, 1wk, 1mo, 3mo
+                // 1mo 	    2m, 3m, 5m, 15m, 30m, 90m, 1h, 1d, 5d, 1wk, 1mo, 3mo
+                // 3mo 	    1h, 1d, 1wk, 1mo, 3mo
+                // 6mo 	    1h, 1d, 1wk, 1mo, 3mo
+                // 1y 	    1h, 1d, 1wk, 1mo, 3mo
+                // 2y 	    1h, 1d, 1wk, 1mo, 3mo
+                // 5y 	    1d, 1wk, 1mo, 3mo
+                // 10y 	    1d, 1wk, 1mo, 3mo
+                // ytd 	    1m, 2m, 5m, 15m, 30m, 90m, 1h, 1d, 5d, 1wk, 1mo, 3mo
+                // max 	    1m, 2m, 5m, 15m, 30m, 90m, 1h, 1d, 5d, 1wk, 1mo, 3mo
                 let (interval, range) = match timeframe.as_str() {
                     "1D" => ("2m", "1d"),
-                    "1W" => ("15m", "5d"),
+                    "1W" => ("1d", "5d"),
                     "1M" => ("1d", "1mo"),
                     "3M" => ("1d", "3mo"),
                     "6M" => ("1d", "6mo"),
@@ -330,12 +361,49 @@ impl WindowHandler for ChartWindow {
     }
 
     fn refresh(&mut self) {
-        self.fetch_data();
+        // If data is older than 30 mins, fetch new
+        if let Some(last) = self.last_fetch_time {
+             if (Local::now() - last).num_minutes() >= 30 {
+                 self.fetch_data();
+             }
+        } else {
+             self.fetch_data();
+        }
     }
 
     fn set_timeframe(&mut self, timeframe: String) {
-        self.timeframe = timeframe;
-        self.fetch_data(); // Auto refresh on change
+        // Check cache first - if valid, apply immediately (no debounce needed)
+        let mut cache_hit = false;
+        if let Some((_, _, ts)) = self.cache.get(&timeframe) {
+            // Check if outdated (30 mins)
+            if (Local::now() - *ts).num_minutes() < 30 {
+                cache_hit = true;
+            }
+        }
+
+        if cache_hit {
+            // Apply immediate
+            self.timeframe = timeframe;
+            self.pending_timeframe = None;
+            self.load_from_cache();
+        } else {
+             // Debounce new fetch
+             self.pending_timeframe = Some(timeframe.clone());
+             self.last_timeframe_change = Some(Instant::now());
+        }
+    }
+
+    fn tick(&mut self) {
+        if let Some(pending) = &self.pending_timeframe {
+            if let Some(last_change) = self.last_timeframe_change {
+                 if last_change.elapsed().as_millis() > 500 {
+                     // Commit
+                     self.timeframe = pending.clone();
+                     self.pending_timeframe = None;
+                     self.fetch_data();
+                 }
+            }
+        }
     }
 
     fn has_data(&self) -> bool {
@@ -351,7 +419,7 @@ impl WindowHandler for ChartWindow {
             y: pos.y,
             width: size.width,
             height: size.height,
-            timeframe: Some(self.timeframe.clone()),
+            timeframe: self.pending_timeframe.clone().or_else(|| Some(self.timeframe.clone())),
         })
     }
 
@@ -384,9 +452,14 @@ impl WindowHandler for ChartWindow {
     }
 
     fn update_data(&mut self, quotes: Vec<yahoo::Quote>, currency: String) {
-        self.quotes = Some(quotes);
-        self.currency = currency;
-        self.last_fetch_time = Some(Local::now());
+        self.quotes = Some(quotes.clone());
+        self.currency = currency.clone();
+        let now = Local::now();
+        self.last_fetch_time = Some(now);
+        
+        // Update Cache
+        self.cache.insert(self.timeframe.clone(), (quotes, currency, now));
+
         self.window.set_visible(true);
         self.window.request_redraw();
     }
