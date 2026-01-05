@@ -8,7 +8,8 @@ use std::num::NonZeroU32;
 use plotters::prelude::*;
 use plotters::backend::BitMapBackend;
 use crate::common::{WindowHandler, UserEvent};
-use chrono::{DateTime, Local};
+use chrono::{DateTime, Local, Utc};
+use time::OffsetDateTime;
 use std::collections::HashMap;
 use std::time::Instant;
 use winit::platform::windows::WindowAttributesExtWindows;
@@ -304,38 +305,69 @@ impl ChartWindow {
             let rt = tokio::runtime::Runtime::new().unwrap();
             rt.block_on(async {
                 let provider = yahoo::YahooConnector::new().unwrap();
-                // range 	interval
-                // 1d 	    1m, 2m, 5m, 15m, 30m, 90m, 1h, 1d, 5d, 1wk, 1mo, 3mo
-                // 1mo 	    2m, 3m, 5m, 15m, 30m, 90m, 1h, 1d, 5d, 1wk, 1mo, 3mo
-                // 3mo 	    1h, 1d, 1wk, 1mo, 3mo
-                // 6mo 	    1h, 1d, 1wk, 1mo, 3mo
-                // 1y 	    1h, 1d, 1wk, 1mo, 3mo
-                // 2y 	    1h, 1d, 1wk, 1mo, 3mo
-                // 5y 	    1d, 1wk, 1mo, 3mo
-                // 10y 	    1d, 1wk, 1mo, 3mo
-                // ytd 	    1m, 2m, 5m, 15m, 30m, 90m, 1h, 1d, 5d, 1wk, 1mo, 3mo
-                // max 	    1m, 2m, 5m, 15m, 30m, 90m, 1h, 1d, 5d, 1wk, 1mo, 3mo
-                let (interval, range) = match timeframe.as_str() {
-                    "1D" => ("2m", "1d"),
-                    "1W" => ("1d", "5d"),
-                    "1M" => ("1d", "1mo"),
-                    "3M" => ("1d", "3mo"),
-                    "6M" => ("1d", "6mo"),
-                    "1Y" => ("1d", "1y"),
-                    "YTD" => ("1d", "ytd"),
-                    _ => ("1d", "1mo"),
-                };
-                match provider.get_quote_range(&symbol, interval, range).await {
-                    Ok(response) => {
-                         let currency = response.metadata().ok().and_then(|m| m.currency.clone()).unwrap_or("USD".to_string());
-                         if let Ok(quotes) = response.quotes() {
-                             let _ = proxy.send_event(UserEvent::DataLoaded(symbol, quotes, currency));
-                         } else {
-                             let _ = proxy.send_event(UserEvent::Error(symbol, "No quotes found".into()));
+                
+                if timeframe == "1W" {
+                    // Stitching 7 days of 5m data
+                    let mut all_quotes = Vec::new();
+                    let now = Utc::now();
+                    let start = now - chrono::Duration::days(7);
+                    
+                    let mut currency = "USD".to_string();       
+                    // Fetch day by day to allow high resolution "5m"
+                    for i in 0..8 {
+                         let chunk_start = start + chrono::Duration::days(i as i64);
+                         let chunk_end = chunk_start + chrono::Duration::days(1);
+                         
+                         if chunk_start > now { break; }
+
+                         let sys_start: std::time::SystemTime = chunk_start.into();
+                         let sys_end: std::time::SystemTime = chunk_end.into();
+                         let odt_start = OffsetDateTime::from(sys_start);
+                         let odt_end = OffsetDateTime::from(sys_end);
+
+                         if let Ok(response) = provider.get_quote_history_interval(&symbol, odt_start, odt_end, "5m").await {
+                             if let Ok(meta) = response.metadata() {
+                                 currency = meta.currency.clone().unwrap_or("USD".to_string());
+                             }
+                             if let Ok(quotes) = response.quotes() {
+                                 all_quotes.extend(quotes);
+                             }
                          }
-                    },
-                    Err(e) => {
-                        let _ = proxy.send_event(UserEvent::Error(symbol, format!("Fetch error: {}", e)));
+                    }
+                    
+                    // Dedup and sort
+                    all_quotes.sort_by_key(|q| q.timestamp);
+                    all_quotes.dedup_by_key(|q| q.timestamp);
+                    
+                    if !all_quotes.is_empty() {
+                         let _ = proxy.send_event(UserEvent::DataLoaded(symbol, all_quotes, currency));
+                    } else {
+                         let _ = proxy.send_event(UserEvent::Error(symbol, "No quotes found for 1W".into()));
+                    }
+
+                } else {
+                    // Standard fetching
+                    let (interval, range) = match timeframe.as_str() {
+                        "1D" => ("2m", "1d"),
+                        "1M" => ("1d", "1mo"),
+                        "3M" => ("1d", "3mo"),
+                        "6M" => ("1d", "6mo"),
+                        "1Y" => ("1d", "1y"),
+                        "YTD" => ("1d", "ytd"),
+                        _ => ("1d", "1mo"),
+                    };
+                    match provider.get_quote_range(&symbol, interval, range).await {
+                        Ok(response) => {
+                             let currency = response.metadata().ok().and_then(|m| m.currency.clone()).unwrap_or("USD".to_string());
+                             if let Ok(quotes) = response.quotes() {
+                                 let _ = proxy.send_event(UserEvent::DataLoaded(symbol, quotes, currency));
+                             } else {
+                                 let _ = proxy.send_event(UserEvent::Error(symbol, "No quotes found".into()));
+                             }
+                        },
+                        Err(e) => {
+                            let _ = proxy.send_event(UserEvent::Error(symbol, format!("Fetch error: {}", e)));
+                        }
                     }
                 }
             });
