@@ -28,7 +28,7 @@ use windows_sys::Win32::Foundation::{HWND, WPARAM, LPARAM, LRESULT, RECT, FARPRO
 #[cfg(target_os = "windows")]
 use windows_sys::Win32::UI::Shell::{SetWindowSubclass, DefSubclassProc};
 #[cfg(target_os = "windows")]
-use windows_sys::Win32::UI::WindowsAndMessaging::{GetWindowRect, HTBOTTOM, HTBOTTOMLEFT, HTBOTTOMRIGHT, HTLEFT, HTRIGHT, HTTOP, HTTOPLEFT, HTTOPRIGHT};
+use windows_sys::Win32::UI::WindowsAndMessaging::{GetWindowRect, SetWindowPos, HTBOTTOM, HTBOTTOMLEFT, HTBOTTOMRIGHT, HTLEFT, HTRIGHT, HTTOP, HTTOPLEFT, HTTOPRIGHT, SWP_NOMOVE, SWP_NOSIZE, SWP_NOACTIVATE};
 #[cfg(target_os = "windows")]
 use windows_sys::Win32::System::LibraryLoader::{LoadLibraryA, GetProcAddress};
 
@@ -377,6 +377,20 @@ impl ChartWindow {
             });
         });
     }
+
+    fn force_to_bottom(&self) {
+        #[cfg(target_os = "windows")]
+        {
+            if let Ok(handle) = self.window.window_handle() {
+                if let RawWindowHandle::Win32(handle) = handle.as_raw() {
+                    let hwnd = handle.hwnd.get() as HWND;
+                    unsafe {
+                        SetWindowPos(hwnd, 1 as HWND, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+                    }
+                }
+            }
+        }
+    }
 }
 
 impl WindowHandler for ChartWindow {
@@ -491,6 +505,7 @@ impl WindowHandler for ChartWindow {
         self.cache.insert(self.timeframe.clone(), (quotes, currency, now));
 
         self.window.set_visible(true);
+        self.force_to_bottom();
         self.window.request_redraw();
     }
 
