@@ -1,19 +1,30 @@
 {
   "charts": [
     {
-      "symbol": "AAPL",
-      "x": 657,
-      "y": 209,
-      "width": 435,
-      "height": 300
+      "symbol": "VVSM.DE",
+      "x": -831,
+      "y": 384,
+      "width": 427,
+      "height": 300,
+      "timeframe": "1D"
     },
     {
       "symbol": "MU",
-      "x": 209,
-      "y": 209,
-      "width": 440,
-      "height": 300
+      "x": -1695,
+      "y": 384,
+      "width": 384,
+      "height": 300,
+      "timeframe": "1D"
+    },
+    {
+      "symbol": "AAPL",
+      "x": -1254,
+      "y": 383,
+      "width": 408,
+      "height": 300,
+      "timeframe": "1D"
     }
   ],
-  "update_interval_minutes": 30
+  "update_interval_minutes": 30,
+  "language": "De"
 }

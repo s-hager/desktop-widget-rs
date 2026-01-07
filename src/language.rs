@@ -44,6 +44,13 @@ pub enum TextId {
     FetchError,
     NoQuotesFound,
     WeekDataError,
+    UpdateCheck,
+    UpdateChecking,
+    UpdateUpToDate,
+    UpdateBtnNow,
+    UpdateUpdating,
+    UpdateRestart,
+    UpdateError,
 }
 
 pub fn get_text(lang: Language, id: TextId) -> &'static str {
@@ -62,6 +69,13 @@ pub fn get_text(lang: Language, id: TextId) -> &'static str {
             TextId::FetchError => "Fetch error:",
             TextId::NoQuotesFound => "No quotes found",
             TextId::WeekDataError => "No quotes found for 1W",
+            TextId::UpdateCheck => "Check Update",
+            TextId::UpdateChecking => "Checking...",
+            TextId::UpdateUpToDate => "Up to date",
+            TextId::UpdateBtnNow => "Update Now",
+            TextId::UpdateUpdating => "Updating...",
+            TextId::UpdateRestart => "Restart app!",
+            TextId::UpdateError => "Error!",
         },
         Language::De => match id {
             TextId::SettingsTitle => "Einstellungen",
@@ -77,6 +91,13 @@ pub fn get_text(lang: Language, id: TextId) -> &'static str {
             TextId::FetchError => "Abruf-Fehler:",
             TextId::NoQuotesFound => "Keine Kurse gefunden",
             TextId::WeekDataError => "Keine Kurse für 1W gefunden",
+            TextId::UpdateCheck => "Suche Update",
+            TextId::UpdateChecking => "Suche...",
+            TextId::UpdateUpToDate => "Aktuell",
+            TextId::UpdateBtnNow => "Jetzt Update",
+            TextId::UpdateUpdating => "Installiere...",
+            TextId::UpdateRestart => "Neustart!",
+            TextId::UpdateError => "Fehler!",
         },
     }
 }

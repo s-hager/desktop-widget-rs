@@ -8,7 +8,7 @@ use softbuffer::{Context, Surface};
 use std::num::NonZeroU32;
 use plotters::prelude::*;
 use plotters::backend::BitMapBackend;
-use crate::common::{WindowHandler, UserEvent};
+use crate::common::{WindowHandler, UserEvent, UpdateStatus};
 use yahoo_finance_api as yahoo;
 use auto_launch::AutoLaunchBuilder;
 use std::env;
@@ -31,6 +31,7 @@ pub struct SettingsWindow {
     startup_enabled: bool,
     error_message: Option<String>,
     language: Language,
+    update_status: Option<UpdateStatus>,
 }
 
 impl SettingsWindow {
@@ -38,7 +39,7 @@ impl SettingsWindow {
         let title = get_text(initial_language, TextId::SettingsTitle);
         let window_attributes = Window::default_attributes()
             .with_title(title)
-            .with_inner_size(winit::dpi::LogicalSize::new(400.0, 400.0))
+            .with_inner_size(winit::dpi::LogicalSize::new(400.0, 480.0))
             .with_resizable(false); 
 
         let window = Rc::new(event_loop.create_window(window_attributes).unwrap());
@@ -76,6 +77,7 @@ impl SettingsWindow {
             startup_enabled,
             error_message: None,
             language: initial_language,
+            update_status: None,
         }
     }
 
@@ -109,6 +111,11 @@ impl WindowHandler for SettingsWindow {
     fn set_language(&mut self, language: Language) {
         self.language = language;
         self.window.set_title(get_text(language, TextId::SettingsTitle));
+        self.window.request_redraw();
+    }
+
+    fn update_status(&mut self, status: UpdateStatus) {
+        self.update_status = Some(status);
         self.window.request_redraw();
     }
 
@@ -212,6 +219,25 @@ impl WindowHandler for SettingsWindow {
                 // Language Toggle (Top Right: x=340, y=10)
                 if x >= 340.0 && x <= 390.0 && y >= 10.0 && y <= 35.0 {
                      let _ = self.proxy.send_event(UserEvent::LanguageChanged(self.language.next()));
+                }
+
+                // Update UI (Footer area y=400+)
+                let update_y = 400.0;
+                // Check Button (20-150)
+                if x >= 20.0 && x <= 150.0 && y >= update_y && y <= update_y + 25.0 {
+                     if !matches!(self.update_status, Some(UpdateStatus::Checking) | Some(UpdateStatus::Updating)) {
+                        let _ = self.proxy.send_event(UserEvent::CheckForUpdates);
+                     }
+                }
+                
+                // Update/Restart Button (160-290) - Only clickable if available or updated
+                if x >= 160.0 && x <= 290.0 && y >= update_y && y <= update_y + 25.0 {
+                    match &self.update_status {
+                        Some(UpdateStatus::Available(_)) => {
+                             let _ = self.proxy.send_event(UserEvent::PerformUpdate);
+                        },
+                        _ => {}
+                    }
                 }
                 
                 self.window.request_redraw();
@@ -411,6 +437,43 @@ impl WindowHandler for SettingsWindow {
                     let plus_color = if plus_hover { RGBColor(100, 100, 100) } else { RGBColor(80, 80, 80) };
                     root.draw(&Rectangle::new([(320, footer_y), (350, footer_y + 25)], plus_color.filled())).unwrap();
                     root.draw_text("+", &font.clone().color(&WHITE), (330, footer_y + 3)).unwrap();
+
+                    // Update UI
+                    let update_y = 400;
+                    // Check Button
+                    let check_hover = self.cursor_pos.0 >= 20.0 && self.cursor_pos.0 <= 150.0 && self.cursor_pos.1 >= update_y as f64 && self.cursor_pos.1 <= (update_y + 25) as f64;
+                    let check_color = if check_hover { RGBColor(100, 100, 100) } else { RGBColor(80, 80, 80) };
+                    root.draw(&Rectangle::new([(20, update_y), (150, update_y + 25)], check_color.filled())).unwrap();
+                    root.draw_text(get_text(self.language, TextId::UpdateCheck), &("sans-serif", 15).into_font().color(&WHITE), (25, update_y + 5)).unwrap();
+
+                    // Status / Action
+                    if let Some(status) = &self.update_status {
+                        let status_text = match status {
+                            UpdateStatus::Checking => get_text(self.language, TextId::UpdateChecking),
+                            UpdateStatus::UpToDate => get_text(self.language, TextId::UpdateUpToDate),
+                            UpdateStatus::Available(v) => {
+                                // Draw Update Button
+                                let btn_hover = self.cursor_pos.0 >= 160.0 && self.cursor_pos.0 <= 290.0 && self.cursor_pos.1 >= update_y as f64 && self.cursor_pos.1 <= (update_y + 25) as f64;
+                                let btn_color = if btn_hover { RGBColor(50, 200, 50) } else { RGBColor(0, 150, 0) };
+                                root.draw(&Rectangle::new([(160, update_y), (290, update_y + 25)], btn_color.filled())).unwrap();
+                                root.draw_text(get_text(self.language, TextId::UpdateBtnNow), &("sans-serif", 15).into_font().color(&WHITE), (165, update_y + 5)).unwrap();
+                                
+                                // Return version string to print next to it
+                                v.as_str()
+                            },
+                            UpdateStatus::Updating => get_text(self.language, TextId::UpdateUpdating),
+                            UpdateStatus::Updated(_) => get_text(self.language, TextId::UpdateRestart),
+                            UpdateStatus::Error(_) => get_text(self.language, TextId::UpdateError),
+                        };
+                        
+                        // If it's not the button case (Available), draw text
+                        if !matches!(status, UpdateStatus::Available(_)) {
+                            root.draw_text(status_text, &("sans-serif", 15).into_font().color(&WHITE), (160, update_y + 5)).unwrap();
+                        } else {
+                             // Draw version info next to button
+                             root.draw_text(&format!("v{}", status_text), &("sans-serif", 15).into_font().color(&WHITE), (300, update_y + 5)).unwrap();
+                        }
+                    }
                 }
 
                 // Copy RGB to u32 0RGB

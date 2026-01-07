@@ -2,6 +2,7 @@ mod common;
 mod chart;
 mod settings;
 mod language;
+mod updater;
 
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
@@ -9,8 +10,8 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy}
 use winit::window::WindowId;
 use std::collections::HashMap;
 use tray_icon::{TrayIcon, TrayIconBuilder, Icon};
-use tray_icon::menu::{Menu, MenuItem, MenuEvent}; // Check MenuEvent usagerEvent, WindowHandler};
-use common::{UserEvent, WindowHandler};
+use tray_icon::menu::{Menu, MenuItem, MenuEvent}; 
+use common::{UserEvent, WindowHandler, UpdateStatus};
 use chart::ChartWindow;
 use settings::SettingsWindow;
 
@@ -353,6 +354,57 @@ impl ApplicationHandler<UserEvent> for App {
                  }
 
                  self.save_config();
+                 self.save_config();
+             },
+             UserEvent::CheckForUpdates => {
+                 let proxy = self.proxy.clone();
+                 // Show checking status immediately
+                 if let Some(sid) = self.settings_id {
+                     if let Some(handler) = self.windows.get_mut(&sid) {
+                         handler.update_status(UpdateStatus::Checking);
+                     }
+                 }
+                 
+                 std::thread::spawn(move || {
+                     match updater::check_update() {
+                         Ok(Some(release)) => {
+                             let _ = proxy.send_event(UserEvent::UpdateStatus(UpdateStatus::Available(release.version)));
+                         },
+                         Ok(None) => {
+                             let _ = proxy.send_event(UserEvent::UpdateStatus(UpdateStatus::UpToDate));
+                         },
+                         Err(e) => {
+                             let _ = proxy.send_event(UserEvent::UpdateStatus(UpdateStatus::Error(e.to_string())));
+                         }
+                     }
+                 });
+             },
+             UserEvent::PerformUpdate => {
+                 let proxy = self.proxy.clone();
+                 // Show updating status
+                 if let Some(sid) = self.settings_id {
+                     if let Some(handler) = self.windows.get_mut(&sid) {
+                         handler.update_status(UpdateStatus::Updating);
+                     }
+                 }
+
+                 std::thread::spawn(move || {
+                     match updater::perform_update() {
+                         Ok(_) => {
+                             let _ = proxy.send_event(UserEvent::UpdateStatus(UpdateStatus::Updated("Restart required".to_string())));
+                         },
+                         Err(e) => {
+                             let _ = proxy.send_event(UserEvent::UpdateStatus(UpdateStatus::Error(e.to_string())));
+                         }
+                     }
+                 });
+             },
+             UserEvent::UpdateStatus(status) => {
+                 if let Some(sid) = self.settings_id {
+                     if let Some(handler) = self.windows.get_mut(&sid) {
+                         handler.update_status(status);
+                     }
+                 }
              }
          }
     }
