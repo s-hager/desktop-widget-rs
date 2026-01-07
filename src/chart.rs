@@ -584,7 +584,21 @@ impl WindowHandler for ChartWindow {
                         .label_style(("sans-serif", 15).into_font().color(&WHITE))
                         .x_labels(x_labels)
                         .y_labels(y_labels)
-                        .x_label_formatter(&|d| d.format("%b %e").to_string())
+                        .x_label_formatter(&|d| {
+                            let format_str = if self.timeframe == "1D" {
+                                "%H:%M"
+                            } else if self.timeframe == "1W" {
+                                let duration = end_date.signed_duration_since(start_date);
+                                if duration.num_days() <= 2 {
+                                    "%a %H:%M"
+                                } else {
+                                    "%b %e"
+                                }
+                            } else {
+                                "%b %e"
+                            };
+                            d.format(format_str).to_string()
+                        })
                         .y_label_formatter(&|y| {
                             if use_decimals {
                                 format!("{:.2}", y)
