@@ -12,6 +12,7 @@ use crate::common::{WindowHandler, UserEvent};
 use yahoo_finance_api as yahoo;
 use auto_launch::AutoLaunchBuilder;
 use std::env;
+use crate::language::{Language, TextId, get_text};
 
 
 pub struct SettingsWindow {
@@ -29,12 +30,14 @@ pub struct SettingsWindow {
     current_interval: u64,
     startup_enabled: bool,
     error_message: Option<String>,
+    language: Language,
 }
 
 impl SettingsWindow {
-    pub fn new(event_loop: &ActiveEventLoop, proxy: EventLoopProxy<UserEvent>, initial_interval: u64) -> Self {
+    pub fn new(event_loop: &ActiveEventLoop, proxy: EventLoopProxy<UserEvent>, initial_interval: u64, initial_language: Language) -> Self {
+        let title = get_text(initial_language, TextId::SettingsTitle);
         let window_attributes = Window::default_attributes()
-            .with_title("Settings")
+            .with_title(title)
             .with_inner_size(winit::dpi::LogicalSize::new(400.0, 400.0))
             .with_resizable(false); 
 
@@ -72,6 +75,7 @@ impl SettingsWindow {
             current_interval: initial_interval,
             startup_enabled,
             error_message: None,
+            language: initial_language,
         }
     }
 
@@ -99,6 +103,12 @@ impl WindowHandler for SettingsWindow {
 
     fn show_error(&mut self, message: String) {
         self.error_message = Some(message);
+        self.window.request_redraw();
+    }
+
+    fn set_language(&mut self, language: Language) {
+        self.language = language;
+        self.window.set_title(get_text(language, TextId::SettingsTitle));
         self.window.request_redraw();
     }
 
@@ -198,6 +208,11 @@ impl WindowHandler for SettingsWindow {
                     self.current_interval += 5;
                     let _ = self.proxy.send_event(UserEvent::UpdateInterval(self.current_interval));
                 }
+
+                // Language Toggle (Top Right: x=340, y=10)
+                if x >= 340.0 && x <= 390.0 && y >= 10.0 && y <= 35.0 {
+                     let _ = self.proxy.send_event(UserEvent::LanguageChanged(self.language.next()));
+                }
                 
                 self.window.request_redraw();
             },
@@ -258,7 +273,13 @@ impl WindowHandler for SettingsWindow {
                     let font = ("sans-serif", 20).into_font();
                     
                     // Title
-                    root.draw_text("Settings", &("sans-serif", 25).into_font().color(&WHITE), (20, 10)).unwrap();
+                    root.draw_text(get_text(self.language, TextId::SettingsTitle), &("sans-serif", 25).into_font().color(&WHITE), (20, 10)).unwrap();
+
+                    // Language Toggle
+                    let lang_hover = self.cursor_pos.0 >= 340.0 && self.cursor_pos.0 <= 390.0 && self.cursor_pos.1 >= 10.0 && self.cursor_pos.1 <= 35.0;
+                    let lang_bg = if lang_hover { RGBColor(100, 100, 100) } else { RGBColor(60, 60, 60) };
+                    root.draw(&Rectangle::new([(340, 10), (390, 35)], lang_bg.filled())).unwrap();
+                    root.draw_text(self.language.as_str(), &("sans-serif", 18).into_font().color(&WHITE), (350, 13)).unwrap();
 
                     // Input Label
                     // root.draw_text("New Symbol:", &font.clone().color(&WHITE), (20, 50)).unwrap();
@@ -272,15 +293,18 @@ impl WindowHandler for SettingsWindow {
                     let add_hover = self.cursor_pos.0 >= 230.0 && self.cursor_pos.0 <= 290.0 && self.cursor_pos.1 >= 50.0 && self.cursor_pos.1 <= 80.0;
                     let add_color = if add_hover { RGBColor(50, 150, 255) } else { RGBColor(0, 100, 200) }; 
                     root.draw(&Rectangle::new([(230, 50), (290, 80)], add_color.filled())).unwrap();
-                    root.draw_text("Add", &font.clone().color(&WHITE), (245, 55)).unwrap();
+                    root.draw_text(get_text(self.language, TextId::AddButton), &font.clone().color(&WHITE), (245, 55)).unwrap();
 
                     // Error Message
                     if let Some(err) = &self.error_message {
+                        // If error starts with "Error:", we might want to localize the prefix if we construct it here.
+                        // But usually it's constructed elsewhere. 
+                        // For now just print as is.
                         root.draw_text(err, &("sans-serif", 15).into_font().color(&RED), (20, 85)).unwrap();
                     }
 
                     // List Header
-                    root.draw_text("Active Charts:", &font.clone().color(&WHITE), (20, 100)).unwrap();
+                    root.draw_text(get_text(self.language, TextId::ActiveCharts), &font.clone().color(&WHITE), (20, 100)).unwrap();
 
                     // List
                     for (i, (_id, symbol, locked, timeframe)) in self.active_charts.iter().enumerate() {
@@ -291,7 +315,7 @@ impl WindowHandler for SettingsWindow {
                          let del_hover = self.cursor_pos.0 >= 220.0 && self.cursor_pos.0 <= 260.0 && self.cursor_pos.1 >= y as f64 && self.cursor_pos.1 <= (y + 25) as f64;
                          let del_color = if del_hover { RGBColor(255, 50, 50) } else { RGBColor(200, 0, 0) };
                          root.draw(&Rectangle::new([(220, y), (260, y + 25)], del_color.filled())).unwrap();
-                         root.draw_text("Del", &font.clone().color(&WHITE), (225, y + 3)).unwrap();
+                         root.draw_text(get_text(self.language, TextId::DeleteButton), &("sans-serif", 15).into_font().color(&WHITE), (225, y + 5)).unwrap();
                          
                          // Lock Button
                          let lock_hover = self.cursor_pos.0 >= 270.0 && self.cursor_pos.0 <= 310.0 && self.cursor_pos.1 >= y as f64 && self.cursor_pos.1 <= (y + 25) as f64;
@@ -356,7 +380,7 @@ impl WindowHandler for SettingsWindow {
 
                     // Auto Startup Toggle
                     let toggle_y = 320;
-                    root.draw_text("Auto Startup:", &font.clone().color(&WHITE), (20, toggle_y + 3)).unwrap();
+                    root.draw_text(get_text(self.language, TextId::AutoStartup), &font.clone().color(&WHITE), (20, toggle_y + 3)).unwrap();
                     
                     // Toggle Switch Background (Rounded Rect)
                     let toggle_rect_color = if self.startup_enabled { RGBColor(0, 200, 100) } else { RGBColor(80, 80, 80) };
@@ -371,7 +395,7 @@ impl WindowHandler for SettingsWindow {
 
                     // Interval Control Footer
                     let footer_y = 360;
-                    root.draw_text("Update Interval (min):", &font.clone().color(&WHITE), (20, footer_y + 3)).unwrap();
+                    root.draw_text(get_text(self.language, TextId::UpdateInterval), &font.clone().color(&WHITE), (20, footer_y + 3)).unwrap();
                     
                     // Value
                     root.draw_text(&format!("{}", self.current_interval), &font.clone().color(&WHITE), (240, footer_y + 3)).unwrap();

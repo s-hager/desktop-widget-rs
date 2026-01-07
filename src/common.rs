@@ -7,13 +7,14 @@ use yahoo_finance_api as yahoo;
 #[derive(Debug)]
 pub enum UserEvent {
     DataLoaded(String, Vec<yahoo::Quote>, String), // Symbol, Quotes, Currency
-    Error(String, String), // Symbol, Error Message
+    Error(String, crate::language::AppError), // Symbol, AppError
     AddChart(String),
     DeleteChart(WindowId),
     OpenSettings,
     ToggleLock(WindowId, bool),
     UpdateInterval(u64),
     ChartTimeframe(WindowId, String),
+    LanguageChanged(crate::language::Language),
 }
 
 pub trait WindowHandler {
@@ -29,5 +30,6 @@ pub trait WindowHandler {
     fn refresh(&mut self) {}
     fn tick(&mut self) {}
     fn show_error(&mut self, _message: String) {}
+    fn set_language(&mut self, _language: crate::language::Language) {}
     fn has_data(&self) -> bool { true }
 }

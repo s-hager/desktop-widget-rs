@@ -18,6 +18,7 @@ use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial};
 use yahoo_finance_api as yahoo;
 use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use std::ffi::c_void;
+use crate::language::{Language, AppError};
 
 #[cfg(target_os = "windows")]
 use windows_sys::Win32::Graphics::Dwm::DwmExtendFrameIntoClientArea;
@@ -226,12 +227,13 @@ pub struct ChartWindow {
     cache: HashMap<String, (Vec<yahoo::Quote>, String, DateTime<Local>)>,
     pending_timeframe: Option<String>,
     last_timeframe_change: Option<Instant>,
+    language: Language,
 }
 
 use crate::config::ChartConfig;
 
 impl ChartWindow {
-    pub fn new(event_loop: &ActiveEventLoop, proxy: EventLoopProxy<UserEvent>, symbol: String, config: Option<ChartConfig>) -> Self {
+    pub fn new(event_loop: &ActiveEventLoop, proxy: EventLoopProxy<UserEvent>, symbol: String, config: Option<ChartConfig>, language: Language) -> Self {
         // ... (attributes setup)
         let mut window_attributes = Window::default_attributes()
             .with_title(&format!("Stock Chart - {}", symbol))
@@ -279,6 +281,7 @@ impl ChartWindow {
             cache: HashMap::new(),
             pending_timeframe: None,
             last_timeframe_change: None,
+            language,
         };
         
         // Initialize subclass
@@ -343,11 +346,11 @@ impl ChartWindow {
                     all_quotes.sort_by_key(|q| q.timestamp);
                     all_quotes.dedup_by_key(|q| q.timestamp);
                     
-                    if !all_quotes.is_empty() {
-                         let _ = proxy.send_event(UserEvent::DataLoaded(symbol, all_quotes, currency));
-                    } else {
-                         let _ = proxy.send_event(UserEvent::Error(symbol, "No quotes found for 1W".into()));
-                    }
+                     if !all_quotes.is_empty() {
+                          let _ = proxy.send_event(UserEvent::DataLoaded(symbol, all_quotes, currency));
+                     } else {
+                          let _ = proxy.send_event(UserEvent::Error(symbol, AppError::WeekDataError));
+                     }
 
                 } else {
                     // Standard fetching
@@ -363,15 +366,15 @@ impl ChartWindow {
                     match provider.get_quote_range(&symbol, interval, range).await {
                         Ok(response) => {
                              let currency = response.metadata().ok().and_then(|m| m.currency.clone()).unwrap_or("USD".to_string());
-                             if let Ok(quotes) = response.quotes() {
-                                 let _ = proxy.send_event(UserEvent::DataLoaded(symbol, quotes, currency));
-                             } else {
-                                 let _ = proxy.send_event(UserEvent::Error(symbol, "No quotes found".into()));
-                             }
-                        },
-                        Err(e) => {
-                            let _ = proxy.send_event(UserEvent::Error(symbol, format!("Fetch error: {}", e)));
-                        }
+                              if let Ok(quotes) = response.quotes() {
+                                  let _ = proxy.send_event(UserEvent::DataLoaded(symbol, quotes, currency));
+                              } else {
+                                  let _ = proxy.send_event(UserEvent::Error(symbol, AppError::NoQuotesFound));
+                              }
+                         },
+                         Err(e) => {
+                             let _ = proxy.send_event(UserEvent::Error(symbol, AppError::FetchError(e.to_string())));
+                         }
                     }
                 }
             });
@@ -402,6 +405,11 @@ impl WindowHandler for ChartWindow {
     fn set_locked(&mut self, locked: bool) {
         self.locked = locked;
         update_subclass(&self.window, locked);
+        self.window.request_redraw();
+    }
+
+    fn set_language(&mut self, language: Language) {
+        self.language = language;
         self.window.request_redraw();
     }
 
@@ -600,19 +608,21 @@ impl WindowHandler for ChartWindow {
                         .x_labels(x_labels)
                         .y_labels(y_labels)
                         .x_label_formatter(&|d| {
-                            let format_str = if self.timeframe == "1D" {
-                                "%H:%M"
+                            let date = DateTime::from_timestamp(d.timestamp(), 0).unwrap().with_timezone(&Local);
+                            let lang = self.language;
+
+                            if self.timeframe == "1D" {
+                                crate::language::format_time(date)
                             } else if self.timeframe == "1W" {
                                 let duration = end_date.signed_duration_since(start_date);
                                 if duration.num_days() <= 2 {
-                                    "%a %H:%M"
+                                    crate::language::format_weekday_time(lang, date)
                                 } else {
-                                    "%b %e"
+                                    crate::language::format_month_day(lang, date)
                                 }
                             } else {
-                                "%b %e"
-                            };
-                            d.format(format_str).to_string()
+                                crate::language::format_month_day(lang, date)
+                            }
                         })
                         .y_label_formatter(&|y| {
                             if use_decimals {

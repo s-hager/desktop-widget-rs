@@ -1,6 +1,7 @@
 mod common;
 mod chart;
 mod settings;
+mod language;
 
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
@@ -16,6 +17,7 @@ use settings::SettingsWindow;
 mod config; // Check config module usage
 
 use config::AppConfig;
+use language::{Language, TextId, get_text};
 
 struct App {
     windows: HashMap<WindowId, Box<dyn WindowHandler>>,
@@ -25,8 +27,8 @@ struct App {
     // Store IDs to manage settings list
     chart_ids: Vec<(WindowId, String, bool, String)>, 
     settings_id: Option<WindowId>,
-    settings_menu_id: Option<String>,
-    quit_menu_id: Option<String>,
+    settings_item: Option<MenuItem>,
+    quit_item: Option<MenuItem>,
     config: AppConfig,
     dirty: bool,
     last_save_time: std::time::Instant,
@@ -64,6 +66,7 @@ impl App {
         let app_config = AppConfig { 
             charts,
             update_interval_minutes: self.config.update_interval_minutes,
+            language: self.config.language,
         };
         app_config.save();
     }
@@ -73,15 +76,21 @@ impl ApplicationHandler<UserEvent> for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         // Initialize Tray if not exists
         if self.tray_icon.is_none() {
-             let tray_menu = Menu::new();
-             let settings_i = MenuItem::new("Settings", true, None);
-             let quit_i = MenuItem::new("Quit", true, None);
-             
-             self.settings_menu_id = Some(settings_i.id().0.clone());
-             self.quit_menu_id = Some(quit_i.id().0.clone());
+             // Load config here so we have the correct language for the tray menu
+             self.config = AppConfig::load();
 
+             let tray_menu = Menu::new();
+             let settings_text = get_text(self.config.language, TextId::SettingsMenu);
+             let quit_text = get_text(self.config.language, TextId::Quit);
+
+             let settings_i = MenuItem::new(settings_text, true, None);
+             let quit_i = MenuItem::new(quit_text, true, None);
+             
              tray_menu.append(&settings_i).unwrap();
              tray_menu.append(&quit_i).unwrap();
+
+             self.settings_item = Some(settings_i);
+             self.quit_item = Some(quit_i);
 
              let icon_rgba = vec![255u8; 32 * 32 * 4]; 
              let icon = Icon::from_rgba(icon_rgba, 32, 32).unwrap();
@@ -99,15 +108,14 @@ impl ApplicationHandler<UserEvent> for App {
 
         // Open initial charts from config
         if self.windows.is_empty() {
-            self.config = AppConfig::load();
             if self.config.charts.is_empty() {
-                 let chart = ChartWindow::new(event_loop, self.proxy.clone(), "AAPL".to_string(), None);
+                 let chart = ChartWindow::new(event_loop, self.proxy.clone(), "AAPL".to_string(), None, self.config.language);
                  let id = chart.window_id();
                  self.windows.insert(id, Box::new(chart));
                  self.chart_ids.push((id, "AAPL".to_string(), true, "1M".to_string()));
             } else {
                  for chart_cfg in &self.config.charts {
-                     let chart = ChartWindow::new(event_loop, self.proxy.clone(), chart_cfg.symbol.clone(), Some(chart_cfg.clone()));
+                     let chart = ChartWindow::new(event_loop, self.proxy.clone(), chart_cfg.symbol.clone(), Some(chart_cfg.clone()), self.config.language);
                      let id = chart.window_id();
                      self.windows.insert(id, Box::new(chart));
                      let tf = chart_cfg.timeframe.clone().unwrap_or("1M".to_string());
@@ -199,14 +207,14 @@ impl ApplicationHandler<UserEvent> for App {
          use tray_icon::{TrayIconEvent, MouseButton, MouseButtonState};
 
          while let Ok(event) = MenuEvent::receiver().try_recv() {
-             let id = event.id.0;
-             if let Some(sid) = &self.settings_menu_id {
-                 if id == *sid {
+             let id = event.id;
+             if let Some(item) = &self.settings_item {
+                 if id == item.id() {
                      let _ = self.proxy.send_event(UserEvent::OpenSettings);
                  }
              }
-             if let Some(qid) = &self.quit_menu_id {
-                 if id == *qid {
+             if let Some(item) = &self.quit_item {
+                 if id == item.id() {
                      self.save_config(); 
                      event_loop.exit();
                  }
@@ -240,13 +248,15 @@ impl ApplicationHandler<UserEvent> for App {
                  self.refresh_settings_window();
                  self.save_config();
              },
-             UserEvent::Error(symbol, e) => {
-                 eprintln!("Error fetching data for {}: {}", symbol, e);
+             UserEvent::Error(symbol, app_error) => {
+                 let localized_err = language::get_error_text(self.config.language, &app_error);
+                 eprintln!("Error fetching data for {}: {}", symbol, localized_err);
                  
                  // Show error in Settings if open
                  if let Some(sid) = self.settings_id {
                      if let Some(handler) = self.windows.get_mut(&sid) {
-                         handler.show_error(format!("Error: {}", e)); // Or just "Symbol not found"
+                         let prefix = get_text(self.config.language, TextId::ErrorPrefix);
+                         handler.show_error(format!("{} {}", prefix, localized_err)); 
                      }
                  }
 
@@ -271,7 +281,7 @@ impl ApplicationHandler<UserEvent> for App {
                  }
              },
              UserEvent::AddChart(symbol) => {
-                 let chart = ChartWindow::new(event_loop, self.proxy.clone(), symbol.clone(), None);
+                 let chart = ChartWindow::new(event_loop, self.proxy.clone(), symbol.clone(), None, self.config.language);
                  let id = chart.window_id();
                  self.windows.insert(id, Box::new(chart));
                  self.chart_ids.push((id, symbol, true, "1M".to_string()));
@@ -311,7 +321,7 @@ impl ApplicationHandler<UserEvent> for App {
              },
              UserEvent::OpenSettings => {
                  if self.settings_id.is_none() {
-                     let mut settings = SettingsWindow::new(event_loop, self.proxy.clone(), self.config.update_interval_minutes);
+                     let mut settings = SettingsWindow::new(event_loop, self.proxy.clone(), self.config.update_interval_minutes, self.config.language);
                      settings.update_active_charts(self.chart_ids.clone());
                      let id = settings.window_id();
                      self.windows.insert(id, Box::new(settings));
@@ -327,8 +337,24 @@ impl ApplicationHandler<UserEvent> for App {
                         }
                      }
                  }
+             },
+             UserEvent::LanguageChanged(lang) => {
+                 self.config.language = lang;
+                 for handler in self.windows.values_mut() {
+                     handler.set_language(lang);
+                 }
+                 
+                 // Update Tray Menu
+                 if let Some(item) = &self.settings_item {
+                     item.set_text(get_text(lang, TextId::SettingsMenu));
+                 }
+                 if let Some(item) = &self.quit_item {
+                     item.set_text(get_text(lang, TextId::Quit));
+                 }
+
+                 self.save_config();
              }
-        }
+         }
     }
 }
 
@@ -345,8 +371,8 @@ fn main() {
         tray_menu: None,
         chart_ids: Vec::new(),
         settings_id: None,
-        settings_menu_id: None,
-        quit_menu_id: None,
+        settings_item: None,
+        quit_item: None,
         config: AppConfig::default(),
         dirty: false,
         last_save_time: std::time::Instant::now(),

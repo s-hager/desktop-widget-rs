@@ -19,6 +19,8 @@ pub struct AppConfig {
     pub charts: Vec<ChartConfig>,
     #[serde(default = "default_interval")]
     pub update_interval_minutes: u64,
+    #[serde(default)]
+    pub language: crate::language::Language,
 }
 
 fn default_interval() -> u64 {
@@ -30,6 +32,7 @@ impl Default for AppConfig {
         Self {
             charts: Vec::new(),
             update_interval_minutes: default_interval(),
+            language: crate::language::Language::default(),
         }
     }
 }
