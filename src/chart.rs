@@ -224,6 +224,8 @@ pub struct ChartWindow {
     
     // Cache: Timeframe -> (Quotes, Currency, FetchTime)
     cache: HashMap<String, (Vec<yahoo::Quote>, String, DateTime<Local>)>,
+    pending_timeframe: Option<String>,
+    last_timeframe_change: Option<Instant>,
 }
 
 use crate::config::ChartConfig;
@@ -275,6 +277,8 @@ impl ChartWindow {
             last_fetch_time: None,
             timeframe: config.as_ref().and_then(|c| c.timeframe.clone()).unwrap_or("1M".to_string()),
             cache: HashMap::new(),
+            pending_timeframe: None,
+            last_timeframe_change: None,
         };
         
         // Initialize subclass
@@ -399,7 +403,7 @@ impl WindowHandler for ChartWindow {
     }
 
     fn set_timeframe(&mut self, timeframe: String) {
-        // Check cache first
+        // Check cache first - if valid, apply immediately (no debounce needed)
         let mut cache_hit = false;
         if let Some((_, _, ts)) = self.cache.get(&timeframe) {
             // Check if outdated (30 mins)
@@ -408,17 +412,28 @@ impl WindowHandler for ChartWindow {
             }
         }
 
-        self.timeframe = timeframe;
-
         if cache_hit {
+            // Apply immediate
+            self.timeframe = timeframe;
+            self.pending_timeframe = None;
             self.load_from_cache();
         } else {
-             self.fetch_data();
+            self.pending_timeframe = Some(timeframe.clone());
+            self.last_timeframe_change = Some(Instant::now());
         }
     }
 
     fn tick(&mut self) {
-        // No debounce
+        if let Some(pending) = &self.pending_timeframe {
+            if let Some(last_change) = self.last_timeframe_change {
+                 if last_change.elapsed().as_millis() > 500 {
+                     // Commit
+                     self.timeframe = pending.clone();
+                     self.pending_timeframe = None;
+                     self.fetch_data();
+                 }
+            }
+        }
     }
 
     fn has_data(&self) -> bool {
@@ -434,7 +449,7 @@ impl WindowHandler for ChartWindow {
             y: pos.y,
             width: size.width,
             height: size.height,
-            timeframe: Some(self.timeframe.clone()),
+            timeframe: self.pending_timeframe.clone().or_else(|| Some(self.timeframe.clone())),
         })
     }
 
