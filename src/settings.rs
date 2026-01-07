@@ -39,7 +39,7 @@ impl SettingsWindow {
         let title = get_text(initial_language, TextId::SettingsTitle);
         let window_attributes = Window::default_attributes()
             .with_title(title)
-            .with_inner_size(winit::dpi::LogicalSize::new(400.0, 480.0))
+            .with_inner_size(winit::dpi::LogicalSize::new(450.0, 480.0))
             .with_resizable(false); 
 
         let window = Rc::new(event_loop.create_window(window_attributes).unwrap());
@@ -217,7 +217,7 @@ impl WindowHandler for SettingsWindow {
                 }
 
                 // Language Toggle (Top Right: x=340, y=10)
-                if x >= 340.0 && x <= 390.0 && y >= 10.0 && y <= 35.0 {
+                if x >= 390.0 && x <= 440.0 && y >= 10.0 && y <= 35.0 {
                      let _ = self.proxy.send_event(UserEvent::LanguageChanged(self.language.next()));
                 }
 
@@ -225,7 +225,7 @@ impl WindowHandler for SettingsWindow {
                 let update_y = 400.0;
                 // Check Button (20-150)
                 if x >= 20.0 && x <= 150.0 && y >= update_y && y <= update_y + 25.0 {
-                     if !matches!(self.update_status, Some(UpdateStatus::Checking) | Some(UpdateStatus::Updating)) {
+                     if !matches!(self.update_status, Some(UpdateStatus::Checking) | Some(UpdateStatus::Updating) | Some(UpdateStatus::Updated(_))) {
                         let _ = self.proxy.send_event(UserEvent::CheckForUpdates);
                      }
                 }
@@ -235,6 +235,9 @@ impl WindowHandler for SettingsWindow {
                     match &self.update_status {
                         Some(UpdateStatus::Available(_)) => {
                              let _ = self.proxy.send_event(UserEvent::PerformUpdate);
+                        },
+                        Some(UpdateStatus::Updated(_)) => {
+                             let _ = self.proxy.send_event(UserEvent::RestartApp);
                         },
                         _ => {}
                     }
@@ -302,10 +305,10 @@ impl WindowHandler for SettingsWindow {
                     root.draw_text(get_text(self.language, TextId::SettingsTitle), &("sans-serif", 25).into_font().color(&WHITE), (20, 10)).unwrap();
 
                     // Language Toggle
-                    let lang_hover = self.cursor_pos.0 >= 340.0 && self.cursor_pos.0 <= 390.0 && self.cursor_pos.1 >= 10.0 && self.cursor_pos.1 <= 35.0;
+                    let lang_hover = self.cursor_pos.0 >= 390.0 && self.cursor_pos.0 <= 440.0 && self.cursor_pos.1 >= 10.0 && self.cursor_pos.1 <= 35.0;
                     let lang_bg = if lang_hover { RGBColor(100, 100, 100) } else { RGBColor(60, 60, 60) };
-                    root.draw(&Rectangle::new([(340, 10), (390, 35)], lang_bg.filled())).unwrap();
-                    root.draw_text(self.language.as_str(), &("sans-serif", 18).into_font().color(&WHITE), (350, 13)).unwrap();
+                    root.draw(&Rectangle::new([(390, 10), (440, 35)], lang_bg.filled())).unwrap();
+                    root.draw_text(self.language.as_str(), &("sans-serif", 18).into_font().color(&WHITE), (400, 13)).unwrap();
 
                     // Input Label
                     // root.draw_text("New Symbol:", &font.clone().color(&WHITE), (20, 50)).unwrap();
@@ -462,17 +465,40 @@ impl WindowHandler for SettingsWindow {
                                 v.as_str()
                             },
                             UpdateStatus::Updating => get_text(self.language, TextId::UpdateUpdating),
-                            UpdateStatus::Updated(_) => get_text(self.language, TextId::UpdateRestart),
+                            UpdateStatus::Updated(_) => {
+                                 // Draw Restart Button (Reuse same area/style as Update button)
+                                let btn_hover = self.cursor_pos.0 >= 160.0 && self.cursor_pos.0 <= 290.0 && self.cursor_pos.1 >= update_y as f64 && self.cursor_pos.1 <= (update_y + 25) as f64;
+                                let btn_color = if btn_hover { RGBColor(50, 200, 50) } else { RGBColor(0, 150, 0) };
+                                root.draw(&Rectangle::new([(160, update_y), (290, update_y + 25)], btn_color.filled())).unwrap();
+                                root.draw_text(get_text(self.language, TextId::UpdateRestart), &("sans-serif", 15).into_font().color(&WHITE), (165, update_y + 5)).unwrap();
+                                "" // No extra text
+                            },
                             UpdateStatus::Error(_) => get_text(self.language, TextId::UpdateError),
                         };
                         
-                        // If it's not the button case (Available), draw text
-                        if !matches!(status, UpdateStatus::Available(_)) {
+                        // If it's not the button case (Available or Updated), draw text
+                        if !matches!(status, UpdateStatus::Available(_) | UpdateStatus::Updated(_)) {
                             root.draw_text(status_text, &("sans-serif", 15).into_font().color(&WHITE), (160, update_y + 5)).unwrap();
-                        } else {
-                             // Draw version info next to button
-                             root.draw_text(&format!("v{}", status_text), &("sans-serif", 15).into_font().color(&WHITE), (300, update_y + 5)).unwrap();
+                        } else if matches!(status, UpdateStatus::Available(_)) {
+                             // Draw new version info
+                             let current_ver = env!("CARGO_PKG_VERSION");
+                             root.draw_text(&format!("v{} -> v{}", current_ver, status_text), &("sans-serif", 12).into_font().color(&WHITE), (300, update_y + 8)).unwrap();
+                        } else if matches!(status, UpdateStatus::Updated(_)) {
+                             // Draw transition even when updated
+                             let current_ver = env!("CARGO_PKG_VERSION");
+                             // status_text for Updated is empty currently (my bad, check common.rs), actually Updated(String) holds the version!
+                             // But wait, my get_text logic for Updated returns "Restart app!"?
+                             // Ah, status_text variable holds the RESULT of get_text.
+                             // I need to access the version string directly from the match above or the status object.
+                             // Let's rely on retrieving it again.
+                             if let UpdateStatus::Updated(v) = status {
+                                  root.draw_text(&format!("v{} -> v{}", current_ver, v), &("sans-serif", 12).into_font().color(&WHITE), (300, update_y + 8)).unwrap();
+                             }
                         }
+                    } else {
+                        // No status, just show current version
+                        let current_ver = env!("CARGO_PKG_VERSION");
+                        root.draw_text(&format!("v{}", current_ver), &("sans-serif", 12).into_font().color(&WHITE), (320, update_y + 8)).unwrap();
                     }
                 }
 

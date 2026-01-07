@@ -374,6 +374,7 @@ impl ApplicationHandler<UserEvent> for App {
                              let _ = proxy.send_event(UserEvent::UpdateStatus(UpdateStatus::UpToDate));
                          },
                          Err(e) => {
+                             println!("Check Update Error: {}", e);
                              let _ = proxy.send_event(UserEvent::UpdateStatus(UpdateStatus::Error(e.to_string())));
                          }
                      }
@@ -390,10 +391,11 @@ impl ApplicationHandler<UserEvent> for App {
 
                  std::thread::spawn(move || {
                      match updater::perform_update() {
-                         Ok(_) => {
-                             let _ = proxy.send_event(UserEvent::UpdateStatus(UpdateStatus::Updated("Restart required".to_string())));
+                         Ok(version) => {
+                             let _ = proxy.send_event(UserEvent::UpdateStatus(UpdateStatus::Updated(version)));
                          },
                          Err(e) => {
+                             println!("Perform Update Error: {}", e);
                              let _ = proxy.send_event(UserEvent::UpdateStatus(UpdateStatus::Error(e.to_string())));
                          }
                      }
@@ -405,6 +407,13 @@ impl ApplicationHandler<UserEvent> for App {
                          handler.update_status(status);
                      }
                  }
+             },
+             UserEvent::RestartApp => {
+                 // Spawn a new instance of the application
+                 if let Ok(exe_path) = std::env::current_exe() {
+                     let _ = std::process::Command::new(exe_path).spawn();
+                 }
+                 event_loop.exit();
              }
          }
     }

@@ -28,6 +28,7 @@ pub enum UserEvent {
     CheckForUpdates,
     UpdateStatus(UpdateStatus),
     PerformUpdate,
+    RestartApp,
 }
 
 pub trait WindowHandler {
