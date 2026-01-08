@@ -1,4 +1,4 @@
-use winit::window::{Window, WindowLevel};
+use winit::window::Window;
 use winit::window::WindowId;
 use winit::event_loop::{ActiveEventLoop, EventLoopProxy};
 use winit::event::{WindowEvent, ElementState, MouseButton};

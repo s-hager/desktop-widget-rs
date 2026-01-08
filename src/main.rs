@@ -1,8 +1,11 @@
+const AUM_ID: &str = "desktop-widget-rs";
+
 mod common;
 mod chart;
 mod settings;
 mod language;
 mod updater;
+mod config;
 
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
@@ -14,11 +17,29 @@ use tray_icon::menu::{Menu, MenuItem, MenuEvent};
 use common::{UserEvent, WindowHandler, UpdateStatus};
 use chart::ChartWindow;
 use settings::SettingsWindow;
-
-mod config; // Check config module usage
-
+use winreg::{enums::HKEY_CURRENT_USER, RegKey};
+use std::path::Path;
 use config::AppConfig;
-use language::{Language, TextId, get_text};
+use language::{TextId, get_text};
+
+
+
+// TODO: might want to delete as well
+fn register_aumid(aum_id: &str, display_name: &str, icon_path: Option<&Path>) -> Result<(), Box<dyn std::error::Error>> {
+    // HKCU\SOFTWARE\Classes\AppUserModelId\desktop-widget-rs
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    let (key, _) = hkcu.create_subkey(format!(r"SOFTWARE\Classes\AppUserModelId\{}", aum_id))?;
+
+    key.set_value("DisplayName", &display_name)?;
+
+    if let Some(path) = icon_path {
+        key.set_value("IconUri", &path.to_string_lossy().to_string())?;
+    } else {
+        let _ = key.delete_value("IconUri");
+    }
+
+    Ok(())
+}
 
 struct App {
     windows: HashMap<WindowId, Box<dyn WindowHandler>>,
@@ -99,12 +120,15 @@ impl ApplicationHandler<UserEvent> for App {
              let tray_icon = TrayIconBuilder::new()
                 .with_menu(Box::new(tray_menu.clone()))
                 .with_icon(icon)
-                .with_tooltip("Stock Widget")
+                .with_tooltip(AUM_ID)
                 .build()
                 .unwrap();
 
              self.tray_icon = Some(tray_icon);
              self.tray_menu = Some(tray_menu);
+
+             // Check for updates on startup
+             let _ = self.proxy.send_event(UserEvent::CheckForUpdates);
         }
 
         // Open initial charts from config
@@ -330,11 +354,7 @@ impl ApplicationHandler<UserEvent> for App {
                  } else {
                      if let Some(id) = self.settings_id {
                         if let Some(_w) = self.windows.get(&id) {
-                            // Focus or request redraw
-                            // w.window().focus_window(); // accessing Window from handler?
-                            // WindowHandler doesn't expose Window.
-                            // Handlers usually have `focus()` method?
-                            // For now just ignore.
+                            // Focus logic
                         }
                      }
                  }
@@ -353,7 +373,6 @@ impl ApplicationHandler<UserEvent> for App {
                      item.set_text(get_text(lang, TextId::Quit));
                  }
 
-                 self.save_config();
                  self.save_config();
              },
              UserEvent::CheckForUpdates => {
@@ -402,6 +421,14 @@ impl ApplicationHandler<UserEvent> for App {
                  });
              },
              UserEvent::UpdateStatus(status) => {
+                 if let UpdateStatus::Available(ref version) = status {
+                     if self.settings_id.is_none() {
+                         if let Err(e) = updater::show_update_notification(version, AUM_ID, self.proxy.clone(), self.config.language) {
+                             eprintln!("Failed to show notification: {}", e);
+                         }
+                     }
+                 }
+
                  if let Some(sid) = self.settings_id {
                      if let Some(handler) = self.windows.get_mut(&sid) {
                          handler.update_status(status);
@@ -422,6 +449,11 @@ impl ApplicationHandler<UserEvent> for App {
 fn main() {
     let event_loop = EventLoop::<UserEvent>::with_user_event().build().unwrap();
     event_loop.set_control_flow(ControlFlow::Wait);
+
+    // Register AUMID in registry to make notifications work
+    if let Err(e) = register_aumid(AUM_ID, "Desktop Widget", None) {
+        eprintln!("Failed to register AUMID: {:?}", e);
+    }
     
     let proxy = event_loop.create_proxy();
     

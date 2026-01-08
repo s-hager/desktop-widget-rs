@@ -51,6 +51,8 @@ pub enum TextId {
     UpdateUpdating,
     UpdateRestart,
     UpdateError,
+    UpdateAvailable,
+    UpdateBody, // Version {} is available.\nClick to open settings.
 }
 
 pub fn get_text(lang: Language, id: TextId) -> &'static str {
@@ -76,6 +78,8 @@ pub fn get_text(lang: Language, id: TextId) -> &'static str {
             TextId::UpdateUpdating => "Updating...",
             TextId::UpdateRestart => "Restart",
             TextId::UpdateError => "Error!",
+            TextId::UpdateAvailable => "Update Available",
+            TextId::UpdateBody => "Version {} is available.\nClick to open settings.",
         },
         Language::De => match id {
             TextId::SettingsTitle => "Einstellungen",
@@ -98,6 +102,8 @@ pub fn get_text(lang: Language, id: TextId) -> &'static str {
             TextId::UpdateUpdating => "Aktualisiere...",
             TextId::UpdateRestart => "Neustarten",
             TextId::UpdateError => "Fehler!",
+            TextId::UpdateAvailable => "Update verfügbar",
+            TextId::UpdateBody => "Version {} ist verfügbar.\nKlicken Sie hier, um die Einstellungen zu öffnen.",
         },
     }
 }

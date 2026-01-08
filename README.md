@@ -12,6 +12,8 @@
 
 `cargo check` Quickly checks if your code compiles without actually building the binary (very fast).
 
+`$env:GITHUB_TOKEN="ghp_aBcDeF..."` Set GitHub personal access token to make authenticated requests for a higher rate limit.
+
 #### Release build
 `cargo build --release` To create an optimized, standalone executable without a debug console (located in: target/release/desktop-widget-rs.exe)
 
