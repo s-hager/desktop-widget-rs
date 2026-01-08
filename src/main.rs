@@ -55,6 +55,7 @@ struct App {
     dirty: bool,
     last_save_time: std::time::Instant,
     last_auto_refresh: std::time::Instant,
+    last_update_check: std::time::Instant,
 }
 
 impl App {
@@ -206,10 +207,22 @@ impl ApplicationHandler<UserEvent> for App {
              }
              self.last_auto_refresh = std::time::Instant::now();
          }
+
+         // Auto-Update Check (every 30 mins)
+         let update_check_interval = std::time::Duration::from_secs(30 * 60);
+         if self.last_update_check.elapsed() >= update_check_interval {
+             let _ = self.proxy.send_event(UserEvent::CheckForUpdates);
+             self.last_update_check = std::time::Instant::now();
+         }
          
          // Calculate next wake up
          let next_refresh = self.last_auto_refresh + refresh_interval;
          let mut next_wake = next_refresh;
+
+         let next_update = self.last_update_check + update_check_interval;
+         if next_update < next_wake {
+             next_wake = next_update;
+         }
 
          if self.dirty {
              let next_save = self.last_save_time + std::time::Duration::from_millis(500);
@@ -470,6 +483,7 @@ fn main() {
         dirty: false,
         last_save_time: std::time::Instant::now(),
         last_auto_refresh: std::time::Instant::now(),
+        last_update_check: std::time::Instant::now(),
     };
     
     event_loop.run_app(&mut app).unwrap();
