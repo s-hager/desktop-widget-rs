@@ -21,6 +21,7 @@ use winreg::{enums::HKEY_CURRENT_USER, RegKey};
 use std::path::Path;
 use config::AppConfig;
 use language::{TextId, get_text};
+use std::os::windows::process::CommandExt;
 
 
 
@@ -451,7 +452,10 @@ impl ApplicationHandler<UserEvent> for App {
              UserEvent::RestartApp => {
                  // Spawn a new instance of the application
                  if let Ok(exe_path) = std::env::current_exe() {
-                     let _ = std::process::Command::new(exe_path).spawn();
+                     const CREATE_NO_WINDOW: u32 = 0x08000000;
+                     let _ = std::process::Command::new(exe_path)
+                         .creation_flags(CREATE_NO_WINDOW)
+                         .spawn();
                  }
                  event_loop.exit();
              }
