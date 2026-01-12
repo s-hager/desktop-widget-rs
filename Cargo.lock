@@ -741,7 +741,7 @@ dependencies = [
 
 [[package]]
 name = "desktop-widget-rs"
-version = "0.0.3"
+version = "0.0.5"
 dependencies = [
  "auto-launch",
  "chrono",
