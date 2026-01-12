@@ -1,3 +1,5 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 const AUM_ID: &str = "desktop-widget-rs";
 
 mod common;
@@ -394,7 +396,7 @@ impl ApplicationHandler<UserEvent> for App {
                  // Show checking status immediately
                  if let Some(sid) = self.settings_id {
                      if let Some(handler) = self.windows.get_mut(&sid) {
-                         handler.update_status(UpdateStatus::Checking);
+                        handler.update_status(UpdateStatus::Checking(env!("CARGO_PKG_VERSION").to_string()));
                      }
                  }
                  
@@ -404,7 +406,7 @@ impl ApplicationHandler<UserEvent> for App {
                              let _ = proxy.send_event(UserEvent::UpdateStatus(UpdateStatus::Available(release.version)));
                          },
                          Ok(None) => {
-                             let _ = proxy.send_event(UserEvent::UpdateStatus(UpdateStatus::UpToDate));
+                             let _ = proxy.send_event(UserEvent::UpdateStatus(UpdateStatus::UpToDate(env!("CARGO_PKG_VERSION").to_string())));
                          },
                          Err(e) => {
                              println!("Check Update Error: {}", e);
