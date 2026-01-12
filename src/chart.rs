@@ -214,7 +214,7 @@ pub struct ChartWindow {
     // context is held by surface usually, but we might need to keep it if we recreate surface? 
     // Softbuffer 0.4: Surface::new(&context, window). 
     // Context needs to be kept alive? Yes.
-    context: Context<Rc<Window>>, 
+    _context: Context<Rc<Window>>, 
     symbol: String,
     currency: String,
     quotes: Option<Vec<yahoo::Quote>>,
@@ -270,7 +270,7 @@ impl ChartWindow {
         let mut chart = Self {
             window,
             surface,
-            context,
+            _context: context,
             symbol: symbol.clone(),
             currency: "USD".to_string(),
             quotes: None,

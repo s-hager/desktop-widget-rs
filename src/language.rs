@@ -40,7 +40,6 @@ pub enum TextId {
     Quit,
     SettingsMenu,
     ErrorPrefix,
-    SymbolNotFound,
     FetchError,
     NoQuotesFound,
     WeekDataError,
@@ -67,7 +66,6 @@ pub fn get_text(lang: Language, id: TextId) -> &'static str {
             TextId::Quit => "Quit",
             TextId::SettingsMenu => "Settings",
             TextId::ErrorPrefix => "Error:",
-            TextId::SymbolNotFound => "Symbol not found",
             TextId::FetchError => "Fetch error:",
             TextId::NoQuotesFound => "No quotes found",
             TextId::WeekDataError => "No quotes found for 1W",
@@ -91,7 +89,6 @@ pub fn get_text(lang: Language, id: TextId) -> &'static str {
             TextId::Quit => "Beenden",
             TextId::SettingsMenu => "Einstellungen",
             TextId::ErrorPrefix => "Fehler:",
-            TextId::SymbolNotFound => "Symbol nicht gefunden",
             TextId::FetchError => "Abruf-Fehler:",
             TextId::NoQuotesFound => "Keine Kurse gefunden",
             TextId::WeekDataError => "Keine Kurse für 1W gefunden",
@@ -165,16 +162,9 @@ pub enum AppError {
 }
 
 pub fn get_error_text(lang: Language, error: &AppError) -> String {
-    match lang {
-        Language::En => match error {
-            AppError::FetchError(_) => "Failed to fetch data from Yahoo Finance".to_string(), // Simplify dynamic error? Or include it?
-            AppError::NoQuotesFound => "No quotes found".to_string(),
-            AppError::WeekDataError => "No quotes found for 1W".to_string(),
-        },
-        Language::De => match error {
-            AppError::FetchError(_) => "Fehler beim Abrufen der Daten von Yahoo Finance".to_string(),
-            AppError::NoQuotesFound => "Keine Kurse gefunden".to_string(),
-            AppError::WeekDataError => "Keine Kurse für 1W gefunden".to_string(),
-        },
+    match error {
+        AppError::FetchError(e) => format!("{} {}", get_text(lang, TextId::FetchError), e),
+        AppError::NoQuotesFound => get_text(lang, TextId::NoQuotesFound).to_string(),
+        AppError::WeekDataError => get_text(lang, TextId::WeekDataError).to_string(),
     }
 }

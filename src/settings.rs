@@ -18,8 +18,7 @@ use crate::language::{Language, TextId, get_text};
 pub struct SettingsWindow {
     window: Rc<Window>,
     surface: Surface<Rc<Window>, Rc<Window>>,
-    // #[allow(dead_code)]
-    context: Context<Rc<Window>>,
+    _context: Context<Rc<Window>>,
     proxy: EventLoopProxy<UserEvent>,
     
     // UI State
@@ -67,7 +66,7 @@ impl SettingsWindow {
         Self {
             window,
             surface,
-            context,
+            _context: context,
             proxy,
             input_text: "".to_string(),
             is_focused: false,
@@ -452,8 +451,8 @@ impl WindowHandler for SettingsWindow {
                     // Status / Action
                     if let Some(status) = &self.update_status {
                         let status_text = match status {
-                            UpdateStatus::Checking(_) => get_text(self.language, TextId::UpdateChecking),
-                            UpdateStatus::UpToDate(_) => get_text(self.language, TextId::UpdateUpToDate),
+                            UpdateStatus::Checking(v) => format!("{} (v{})", get_text(self.language, TextId::UpdateChecking), v),
+                            UpdateStatus::UpToDate(v) => format!("{} (v{})", get_text(self.language, TextId::UpdateUpToDate), v),
                             UpdateStatus::Available(v) => {
                                 // Draw Update Button
                                 let btn_hover = self.cursor_pos.0 >= 160.0 && self.cursor_pos.0 <= 290.0 && self.cursor_pos.1 >= update_y as f64 && self.cursor_pos.1 <= (update_y + 25) as f64;
@@ -462,23 +461,23 @@ impl WindowHandler for SettingsWindow {
                                 root.draw_text(get_text(self.language, TextId::UpdateBtnNow), &("sans-serif", 15).into_font().color(&WHITE), (165, update_y + 5)).unwrap();
                                 
                                 // Return version string to print next to it
-                                v.as_str()
+                                v.as_str().to_string()
                             },
-                            UpdateStatus::Updating => get_text(self.language, TextId::UpdateUpdating),
+                            UpdateStatus::Updating => get_text(self.language, TextId::UpdateUpdating).to_string(),
                             UpdateStatus::Updated(_) => {
                                  // Draw Restart Button (Reuse same area/style as Update button)
                                 let btn_hover = self.cursor_pos.0 >= 160.0 && self.cursor_pos.0 <= 290.0 && self.cursor_pos.1 >= update_y as f64 && self.cursor_pos.1 <= (update_y + 25) as f64;
                                 let btn_color = if btn_hover { RGBColor(50, 200, 50) } else { RGBColor(0, 150, 0) };
                                 root.draw(&Rectangle::new([(160, update_y), (290, update_y + 25)], btn_color.filled())).unwrap();
                                 root.draw_text(get_text(self.language, TextId::UpdateRestart), &("sans-serif", 15).into_font().color(&WHITE), (165, update_y + 5)).unwrap();
-                                "" // No extra text
+                                "".to_string() // No extra text
                             },
-                            UpdateStatus::Error(_) => get_text(self.language, TextId::UpdateError),
+                            UpdateStatus::Error(e) => format!("{} ({})", get_text(self.language, TextId::UpdateError), e),
                         };
                         
                         // If it's not the button case (Available or Updated), draw text
                         if !matches!(status, UpdateStatus::Available(_) | UpdateStatus::Updated(_)) {
-                            root.draw_text(status_text, &("sans-serif", 15).into_font().color(&WHITE), (160, update_y + 5)).unwrap();
+                            root.draw_text(&status_text, &("sans-serif", 15).into_font().color(&WHITE), (160, update_y + 5)).unwrap();
                         } else if matches!(status, UpdateStatus::Available(_)) {
                              // Draw new version info
                              let current_ver = env!("CARGO_PKG_VERSION");
