@@ -233,7 +233,7 @@ pub struct ChartWindow {
 use crate::config::ChartConfig;
 
 impl ChartWindow {
-    pub fn new(event_loop: &ActiveEventLoop, proxy: EventLoopProxy<UserEvent>, symbol: String, config: Option<ChartConfig>, language: Language) -> Self {
+    pub fn new(event_loop: &ActiveEventLoop, proxy: EventLoopProxy<UserEvent>, symbol: String, mut config: Option<ChartConfig>, language: Language) -> Self {
         // ... (attributes setup)
         let mut window_attributes = Window::default_attributes()
             .with_title(&format!("Stock Chart - {}", symbol))
@@ -243,7 +243,47 @@ impl ChartWindow {
             .with_skip_taskbar(true)
             .with_visible(false); 
 
-        if let Some(cfg) = &config {
+        if let Some(cfg) = &mut config {
+            let mut is_visible = false;
+            let window_x = cfg.x;
+            let window_y = cfg.y;
+            
+            // Check visibility: at least a 10x10 corner must be visible or center visible
+            // Let's ensure the top-left corner + 20px is visible, or center.
+            // Strict: Top-Left must be within bounds.
+            for monitor in event_loop.available_monitors() {
+                let m_pos = monitor.position();
+                let m_size = monitor.size();
+                let m_width = m_size.width as i32;
+                let m_height = m_size.height as i32;
+                
+                // Simple AABB check for intersection
+                // Rect 1: window_x, window_y, ...
+                // Rect 2: m_pos.x, m_pos.y, width, height
+                
+                // Check if Top-Left is inside
+                if window_x >= m_pos.x && window_x < m_pos.x + m_width &&
+                   window_y >= m_pos.y && window_y < m_pos.y + m_height {
+                    is_visible = true;
+                    break;
+                }
+            }
+            
+            if !is_visible {
+                // Find primary or first
+                let target_monitor = event_loop.primary_monitor().or_else(|| event_loop.available_monitors().next());
+                if let Some(monitor) = target_monitor {
+                    let m_pos = monitor.position();
+                    // Place at 50, 50 relative to monitor
+                    cfg.x = m_pos.x + 50;
+                    cfg.y = m_pos.y + 50;
+                } else {
+                    cfg.x = 50;
+                    cfg.y = 50;
+                }
+            }
+
+
             window_attributes = window_attributes
                 .with_position(winit::dpi::PhysicalPosition::new(cfg.x, cfg.y))
                 .with_inner_size(winit::dpi::PhysicalSize::new(cfg.width, cfg.height));
