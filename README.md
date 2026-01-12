@@ -21,3 +21,7 @@
 - Tag release: Create a tag for the new version (e.g., git tag v0.1.1).
 - Push Tag: git push origin v0.1.1.
 - The Action will automatically run, build the release, and upload the zip file to the GitHub Release page. The app's auto-updater will then be able to detect this new version (provided the version in Cargo.toml is higher than in the current release).
+
+##### Tag management
+- Delete tag: `git tag -d v0.1.1`
+- Delete tag from remote: `git push origin :refs/tags/v0.1.1`
