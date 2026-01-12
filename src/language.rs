@@ -16,8 +16,8 @@ impl Default for Language {
 impl Language {
     pub fn as_str(&self) -> &str {
         match self {
-            Language::En => "EN",
-            Language::De => "DE",
+            Language::En => "en",
+            Language::De => "de",
         }
     }
 
@@ -56,6 +56,7 @@ pub enum TextId {
     Charts,
     Language,
     Locked,
+    Unlocked,
     SymbolPlaceholder,
 }
 
@@ -87,6 +88,7 @@ pub fn get_text(lang: Language, id: TextId) -> &'static str {
             TextId::Charts => "Charts",
             TextId::Language => "Language:",
             TextId::Locked => "Locked",
+            TextId::Unlocked => "Unlocked",
             TextId::SymbolPlaceholder => "Symbol (e.g. AAPL)",
         },
         Language::De => match id {
@@ -115,6 +117,7 @@ pub fn get_text(lang: Language, id: TextId) -> &'static str {
             TextId::Charts => "Charts",
             TextId::Language => "Sprache:",
             TextId::Locked => "Gesperrt",
+            TextId::Unlocked => "Entsperrt",
             TextId::SymbolPlaceholder => "Symbol (z.B. AAPL)",
         },
     }

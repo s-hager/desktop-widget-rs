@@ -9,6 +9,7 @@ mod updater;
 mod config;
 mod ipc;
 mod settings_iced;
+mod icons;
 
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;

@@ -1,4 +1,4 @@
-use iced::widget::{button, checkbox, column, container, pick_list, row, scrollable, text, text_input, vertical_space, horizontal_rule};
+use iced::widget::{button, checkbox, column, container, pick_list, row, scrollable, text, text_input, vertical_space, horizontal_rule, tooltip, svg};
 use iced::{Element, Length, Theme, Command, Application, Settings, Subscription, Alignment};
 use crate::ipc::{IpcMessage, ChartData, ConfigData, PIPE_NAME};
 use crate::language::{self, TextId};
@@ -251,17 +251,29 @@ impl Application for SettingsApp {
             ).width(Length::Fixed(80.0));
 
             // Lock Toggle
-            let lock_cb = checkbox(language::get_text(lang_enum, TextId::Locked), chart.locked)
-                .on_toggle(move |val| Message::LockToggled(chart.id.clone(), val));
+            let lock_icon = if chart.locked { crate::icons::lock_icon() } else { crate::icons::unlock_icon() };
+            let lock_text_id = if chart.locked { TextId::Locked } else { TextId::Unlocked };
+            let lock_btn = tooltip(
+                button(svg(lock_icon).width(Length::Fixed(20.0)).height(Length::Fixed(20.0)))
+                    .on_press(Message::LockToggled(chart.id.clone(), !chart.locked))
+                    .padding(5),
+                language::get_text(lang_enum, lock_text_id),
+                tooltip::Position::Top
+            );
 
-            let del_btn = button(language::get_text(lang_enum, TextId::DeleteButton))
-                .on_press(Message::DeletePressed(chart.id.clone()))
-                .style(iced::theme::Button::Destructive);
+            let del_btn = tooltip(
+                button(svg(crate::icons::trash_icon()).width(Length::Fixed(20.0)).height(Length::Fixed(20.0)))
+                    .on_press(Message::DeletePressed(chart.id.clone()))
+                    .style(iced::theme::Button::Destructive)
+                    .padding(5),
+                language::get_text(lang_enum, TextId::DeleteButton),
+                tooltip::Position::Top
+            );
 
             let row = row![
                 text(&chart.symbol).width(Length::Fill).size(18),
                 tf_pick,
-                lock_cb,
+                lock_btn,
                 del_btn
             ]
             .spacing(15)
