@@ -225,7 +225,7 @@ impl WindowHandler for SettingsWindow {
                 let update_y = 400.0;
                 // Check Button (20-150)
                 if x >= 20.0 && x <= 150.0 && y >= update_y && y <= update_y + 25.0 {
-                     if !matches!(self.update_status, Some(UpdateStatus::Checking) | Some(UpdateStatus::Updating) | Some(UpdateStatus::Updated(_))) {
+                     if !matches!(self.update_status, Some(UpdateStatus::Checking(_)) | Some(UpdateStatus::Updating) | Some(UpdateStatus::Updated(_))) {
                         let _ = self.proxy.send_event(UserEvent::CheckForUpdates);
                      }
                 }
@@ -452,8 +452,8 @@ impl WindowHandler for SettingsWindow {
                     // Status / Action
                     if let Some(status) = &self.update_status {
                         let status_text = match status {
-                            UpdateStatus::Checking => get_text(self.language, TextId::UpdateChecking),
-                            UpdateStatus::UpToDate => get_text(self.language, TextId::UpdateUpToDate),
+                            UpdateStatus::Checking(_) => get_text(self.language, TextId::UpdateChecking),
+                            UpdateStatus::UpToDate(_) => get_text(self.language, TextId::UpdateUpToDate),
                             UpdateStatus::Available(v) => {
                                 // Draw Update Button
                                 let btn_hover = self.cursor_pos.0 >= 160.0 && self.cursor_pos.0 <= 290.0 && self.cursor_pos.1 >= update_y as f64 && self.cursor_pos.1 <= (update_y + 25) as f64;

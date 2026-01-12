@@ -6,9 +6,9 @@ use yahoo_finance_api as yahoo;
 
 #[derive(Clone, Debug)]
 pub enum UpdateStatus {
-    Checking,
+    Checking(String),
     Available(String), // version
-    UpToDate,
+    UpToDate(String),
     Error(String),
     Updating,
     Updated(String), // version
