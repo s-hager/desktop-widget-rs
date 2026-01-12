@@ -20,4 +20,6 @@ time = "0.3"
 self_update = { version = "0.42", features = ["archive-zip", "compression-zip-deflate"] }
 notify-rust = "4.11.7"
 winreg = "0.52"
+iced = { version = "0.12", features = ["tokio"] }
+futures = "0.3"
 

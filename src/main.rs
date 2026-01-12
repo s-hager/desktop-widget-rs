@@ -4,10 +4,11 @@ const AUM_ID: &str = "desktop-widget-rs";
 
 mod common;
 mod chart;
-mod settings;
 mod language;
 mod updater;
 mod config;
+mod ipc;
+mod settings_iced;
 
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
@@ -18,7 +19,6 @@ use tray_icon::{TrayIcon, TrayIconBuilder, Icon};
 use tray_icon::menu::{Menu, MenuItem, MenuEvent}; 
 use common::{UserEvent, WindowHandler, UpdateStatus};
 use chart::ChartWindow;
-use settings::SettingsWindow;
 use winreg::{enums::HKEY_CURRENT_USER, RegKey};
 use std::path::Path;
 use config::AppConfig;
@@ -59,24 +59,43 @@ struct App {
     last_save_time: std::time::Instant,
     last_auto_refresh: std::time::Instant,
     last_update_check: std::time::Instant,
+    ipc_tx: Option<tokio::sync::mpsc::Sender<crate::ipc::IpcMessage>>,
 }
 
 impl App {
     fn refresh_settings_window(&mut self) {
-        // Filter charts to only include those that have data
-        let mut visible_charts = Vec::new();
+        // Collect chart data
+        let mut charts_data = Vec::new();
         for (id, symbol, locked, timeframe) in &self.chart_ids {
-            if let Some(handler) = self.windows.get(id) {
-                if handler.has_data() {
-                    visible_charts.push((*id, symbol.clone(), *locked, timeframe.clone()));
-                }
+            // Check if window exists (it should)
+            if self.windows.contains_key(id) {
+                 charts_data.push(crate::ipc::ChartData {
+                     id: format!("{:?}", id),
+                     symbol: symbol.clone(),
+                     timeframe: timeframe.clone(),
+                     locked: *locked,
+                 });
             }
         }
+        
+        let args: &[&str] = &[];
+        let auto_start = auto_launch::AutoLaunch::new("desktop-widget-rs", std::env::current_exe().unwrap().to_str().unwrap(), args).is_enabled().unwrap_or(false);
 
-        if let Some(sid) = self.settings_id {
-            if let Some(handler) = self.windows.get_mut(&sid) {
-                handler.update_active_charts(visible_charts);
-            }
+        let config_data = crate::ipc::ConfigData {
+            language: self.config.language.as_str().to_string(), // Ensure Language has as_str
+            update_interval: self.config.update_interval_minutes,
+            auto_start,
+        };
+        
+        // Send to IPC if connected
+        if let Some(tx) = &self.ipc_tx {
+            let msg_charts = crate::ipc::IpcMessage::Charts(charts_data);
+            let msg_config = crate::ipc::IpcMessage::Config(config_data);
+            let tx1 = tx.clone();
+            let tx2 = tx.clone();
+            // Send both
+            let _ = tx1.try_send(msg_charts);
+            let _ = tx2.try_send(msg_config);
         }
     }
 
@@ -361,18 +380,11 @@ impl ApplicationHandler<UserEvent> for App {
                  self.save_config();
              },
              UserEvent::OpenSettings => {
-                 if self.settings_id.is_none() {
-                     let mut settings = SettingsWindow::new(event_loop, self.proxy.clone(), self.config.update_interval_minutes, self.config.language);
-                     settings.update_active_charts(self.chart_ids.clone());
-                     let id = settings.window_id();
-                     self.windows.insert(id, Box::new(settings));
-                     self.settings_id = Some(id);
-                 } else {
-                     if let Some(id) = self.settings_id {
-                        if let Some(_w) = self.windows.get(&id) {
-                            // Focus logic
-                        }
-                     }
+                 // Spawn settings process
+                 if let Ok(exe_path) = std::env::current_exe() {
+                     let _ = std::process::Command::new(exe_path)
+                         .arg("--settings")
+                         .spawn();
                  }
              },
              UserEvent::LanguageChanged(lang) => {
@@ -437,17 +449,27 @@ impl ApplicationHandler<UserEvent> for App {
                  });
              },
              UserEvent::UpdateStatus(status) => {
+                 let status_str = match &status {
+                     UpdateStatus::Checking(_) => "Checking for updates...",
+                     UpdateStatus::Available(v) => return, // Notification logic handles this? 
+                     UpdateStatus::UpToDate(_) => "Up to date",
+                     UpdateStatus::Error(e) => return, // e string
+                     UpdateStatus::Updating => "Updating...",
+                     UpdateStatus::Updated(_) => "Updated!",
+                 };
+                 // We need to construct a better string or just pass the enum string if we implement Display/Serialize
+                 // For now let's just make a string
+                 let msg_str = format!("{:?}", status); // Lazy
+
+                 if let Some(tx) = &self.ipc_tx {
+                     let _ = tx.try_send(crate::ipc::IpcMessage::UpdateStatus(msg_str));
+                 }
+
                  if let UpdateStatus::Available(ref version) = status {
-                     if self.settings_id.is_none() {
+                     if self.ipc_tx.is_none() {
                          if let Err(e) = updater::show_update_notification(version, AUM_ID, self.proxy.clone(), self.config.language) {
                              eprintln!("Failed to show notification: {}", e);
                          }
-                     }
-                 }
-
-                 if let Some(sid) = self.settings_id {
-                     if let Some(handler) = self.windows.get_mut(&sid) {
-                         handler.update_status(status);
                      }
                  }
              },
@@ -460,12 +482,75 @@ impl ApplicationHandler<UserEvent> for App {
                          .spawn();
                  }
                  event_loop.exit();
+             },
+             UserEvent::IpcConnected(tx) => {
+                 self.ipc_tx = Some(tx);
+                 self.refresh_settings_window();
+             },
+             UserEvent::IpcMessageReceived(msg) => {
+                 match msg {
+                     crate::ipc::IpcMessage::GetCharts | crate::ipc::IpcMessage::GetConfig => {
+                         self.refresh_settings_window();
+                     },
+                     crate::ipc::IpcMessage::AddChart(symbol) => {
+                         let _ = self.proxy.send_event(UserEvent::AddChart(symbol));
+                     },
+                     crate::ipc::IpcMessage::DeleteChart(id_str) => {
+                         if let Some((wid, _, _, _)) = self.chart_ids.iter().find(|(wid, _, _, _)| format!("{:?}", wid) == id_str) {
+                             let _ = self.proxy.send_event(UserEvent::DeleteChart(*wid));
+                         }
+                     },
+                     crate::ipc::IpcMessage::ToggleChartLock(id_str, locked) => {
+                         if let Some((wid, _, _, _)) = self.chart_ids.iter().find(|(wid, _, _, _)| format!("{:?}", wid) == id_str) {
+                             let _ = self.proxy.send_event(UserEvent::ToggleLock(*wid, locked));
+                         }
+                     },
+                     crate::ipc::IpcMessage::SetChartTimeframe(id_str, tf) => {
+                         if let Some((wid, _, _, _)) = self.chart_ids.iter().find(|(wid, _, _, _)| format!("{:?}", wid) == id_str) {
+                             let _ = self.proxy.send_event(UserEvent::ChartTimeframe(*wid, tf));
+                         }
+                     },
+                     crate::ipc::IpcMessage::SetLanguage(lang_str) => {
+                         // Parse language
+                         let lang = if lang_str == "de" { language::Language::De } else { language::Language::En };
+                         let _ = self.proxy.send_event(UserEvent::LanguageChanged(lang));
+                     },
+                     crate::ipc::IpcMessage::SetUpdateInterval(min) => {
+                         let _ = self.proxy.send_event(UserEvent::UpdateInterval(min));
+                     },
+                     crate::ipc::IpcMessage::SetAutoStart(enable) => {
+                         let args: &[&str] = &[];
+                         let auto = auto_launch::AutoLaunch::new("desktop-widget-rs", std::env::current_exe().unwrap().to_str().unwrap(), args);
+                         if enable {
+                             let _ = auto.enable();
+                         } else {
+                             let _ = auto.disable();
+                         }
+                         self.refresh_settings_window(); // Sync back
+                     },
+                     crate::ipc::IpcMessage::CheckForUpdates => {
+                         let _ = self.proxy.send_event(UserEvent::CheckForUpdates);
+                     },
+                     crate::ipc::IpcMessage::PerformUpdate => {
+                         let _ = self.proxy.send_event(UserEvent::PerformUpdate);
+                     },
+                     _ => {}
+                 }
              }
          }
     }
 }
 
 fn main() {
+    // Check arguments for settings mode
+    let args: Vec<String> = std::env::args().collect();
+    if args.iter().any(|a| a == "--settings") {
+        if let Err(e) = settings_iced::run() {
+            eprintln!("Settings Error: {}", e);
+        }
+        return;
+    }
+
     let event_loop = EventLoop::<UserEvent>::with_user_event().build().unwrap();
     event_loop.set_control_flow(ControlFlow::Wait);
 
@@ -490,7 +575,79 @@ fn main() {
         last_save_time: std::time::Instant::now(),
         last_auto_refresh: std::time::Instant::now(),
         last_update_check: std::time::Instant::now(),
+        ipc_tx: None,
     };
+    
+    // Start IPC Server
+    let proxy = event_loop.create_proxy();
+    std::thread::spawn(move || {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async move {
+            use tokio::net::windows::named_pipe::ServerOptions;
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+            
+            loop {
+                 let server = ServerOptions::new()
+                    .first_pipe_instance(true)
+                    .create(crate::ipc::PIPE_NAME)
+                    .or_else(|_| {
+                         // If first instance fails, try allowing multiple? 
+                         // Actually named pipes reuse the name. 
+                         // But for now let's just try creation.
+                         // If "All pipe instances are busy", we need loop.
+                         ServerOptions::new().first_pipe_instance(false).create(crate::ipc::PIPE_NAME)
+                    });
+                 
+                 let server = match server {
+                     Ok(s) => s,
+                     Err(e) => {
+                         eprintln!("Failed to create pipe: {}", e);
+                         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                         continue;
+                     }
+                 };
+                 
+                 if server.connect().await.is_err() { continue; }
+                 
+                 let proxy = proxy.clone();
+                 tokio::spawn(async move {
+                     let (mut reader, mut writer) = tokio::io::split(server);
+                     let (tx, mut rx) = tokio::sync::mpsc::channel::<crate::ipc::IpcMessage>(32);
+                     
+                     let _ = proxy.send_event(UserEvent::IpcConnected(tx));
+                     
+                     loop {
+                         tokio::select! {
+                             msg = rx.recv() => {
+                                 if let Some(msg) = msg {
+                                      if let Ok(json) = serde_json::to_string(&msg) {
+                                         let bytes = json.as_bytes();
+                                         let len = bytes.len() as u32;
+                                         if writer.write_all(&len.to_le_bytes()).await.is_err() { break; }
+                                         if writer.write_all(bytes).await.is_err() { break; }
+                                     }
+                                 } else { break; }
+                             }
+                             res = async {
+                                 let mut len_buf = [0u8; 4];
+                                 if reader.read_exact(&mut len_buf).await.is_err() { return None; }
+                                 let len = u32::from_le_bytes(len_buf) as usize;
+                                 let mut buf = vec![0u8; len];
+                                 if reader.read_exact(&mut buf).await.is_err() { return None; }
+                                 serde_json::from_slice::<crate::ipc::IpcMessage>(&buf).ok()
+                             } => {
+                                 if let Some(msg) = res {
+                                     let _ = proxy.send_event(UserEvent::IpcMessageReceived(msg));
+                                 } else {
+                                     break; 
+                                 }
+                             }
+                         }
+                     }
+                 });
+            }
+        });
+    });
     
     event_loop.run_app(&mut app).unwrap();
 }

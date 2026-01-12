@@ -52,6 +52,11 @@ pub enum TextId {
     UpdateError,
     UpdateAvailable,
     UpdateBody, // Version {} is available.\nClick to open settings.
+    General,
+    Charts,
+    Language,
+    Locked,
+    SymbolPlaceholder,
 }
 
 pub fn get_text(lang: Language, id: TextId) -> &'static str {
@@ -78,6 +83,11 @@ pub fn get_text(lang: Language, id: TextId) -> &'static str {
             TextId::UpdateError => "Error!",
             TextId::UpdateAvailable => "Update Available",
             TextId::UpdateBody => "Version {} is available.\nClick to open settings.",
+            TextId::General => "General",
+            TextId::Charts => "Charts",
+            TextId::Language => "Language:",
+            TextId::Locked => "Locked",
+            TextId::SymbolPlaceholder => "Symbol (e.g. AAPL)",
         },
         Language::De => match id {
             TextId::SettingsTitle => "Einstellungen",
@@ -101,6 +111,11 @@ pub fn get_text(lang: Language, id: TextId) -> &'static str {
             TextId::UpdateError => "Fehler!",
             TextId::UpdateAvailable => "Update verfügbar",
             TextId::UpdateBody => "Version {} ist verfügbar.\nKlicken Sie hier, um die Einstellungen zu öffnen.",
+            TextId::General => "Allgemein",
+            TextId::Charts => "Charts",
+            TextId::Language => "Sprache:",
+            TextId::Locked => "Gesperrt",
+            TextId::SymbolPlaceholder => "Symbol (z.B. AAPL)",
         },
     }
 }

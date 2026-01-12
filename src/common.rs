@@ -3,6 +3,8 @@ use winit::event::WindowEvent;
 use winit::window::WindowId;
 use winit::event_loop::ActiveEventLoop;
 use yahoo_finance_api as yahoo;
+use crate::ipc::IpcMessage;
+use tokio::sync::mpsc::Sender;
 
 #[derive(Clone, Debug)]
 pub enum UpdateStatus {
@@ -29,6 +31,8 @@ pub enum UserEvent {
     UpdateStatus(UpdateStatus),
     PerformUpdate,
     RestartApp,
+    IpcConnected(Sender<IpcMessage>),
+    IpcMessageReceived(IpcMessage),
 }
 
 pub trait WindowHandler {
