@@ -33,6 +33,7 @@ pub enum UserEvent {
     RestartApp,
     IpcConnected(Sender<IpcMessage>),
     IpcMessageReceived(IpcMessage),
+    IpcDisconnected,
 }
 
 pub trait WindowHandler {

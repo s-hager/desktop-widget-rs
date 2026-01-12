@@ -61,6 +61,7 @@ struct App {
     last_auto_refresh: std::time::Instant,
     last_update_check: std::time::Instant,
     ipc_tx: Option<tokio::sync::mpsc::Sender<crate::ipc::IpcMessage>>,
+    pending_charts: HashMap<WindowId, String>,
 }
 
 impl App {
@@ -178,6 +179,7 @@ impl ApplicationHandler<UserEvent> for App {
         if let WindowEvent::CloseRequested = event {
             self.windows.remove(&window_id);
             self.chart_ids.retain(|(id, _, _, _)| *id != window_id);
+            self.pending_charts.remove(&window_id);
             
             if Some(window_id) == self.settings_id {
                 self.settings_id = None;
@@ -301,13 +303,35 @@ impl ApplicationHandler<UserEvent> for App {
                      .map(|(id, _, _, _)| *id)
                      .collect();
                 
-                 for id in targets {
+                 for id in &targets {
                      if let Some(h) = self.windows.get_mut(&id) {
                          h.update_data(quotes.clone(), currency.clone());
                      }
                  }
-                 self.refresh_settings_window();
-                 self.save_config();
+                 
+                 // Check pending charts
+                 let mut promoted = false;
+                 // We need to iterate pending charts and see if any match the symbol and have data
+                 let pending_ids: Vec<WindowId> = self.pending_charts.iter()
+                     .filter(|(_, s)| **s == symbol)
+                     .map(|(id, _)| *id)
+                     .collect();
+
+                 for id in pending_ids {
+                     if let Some(h) = self.windows.get_mut(&id) {
+                         h.update_data(quotes.clone(), currency.clone());
+                         if h.has_data() {
+                             self.chart_ids.push((id, symbol.clone(), true, "1M".to_string()));
+                             self.pending_charts.remove(&id);
+                             promoted = true;
+                         }
+                     }
+                 }
+
+                 if !targets.is_empty() || promoted {
+                     self.refresh_settings_window();
+                     self.save_config();
+                 }
              },
              UserEvent::Error(symbol, app_error) => {
                  let localized_err = language::get_error_text(self.config.language, &app_error);
@@ -322,22 +346,35 @@ impl ApplicationHandler<UserEvent> for App {
                  }
 
                  // If this was a new window (no data yet), delete it
-                 // We need to find the ID associated with this symbol
                  let target_id = self.chart_ids.iter()
                     .find(|(_, s, _, _)| *s == symbol)
                     .map(|(id, _, _, _)| *id);
-
+                
                  if let Some(id) = target_id {
-                     // Check if it has data
-                     let should_delete = if let Some(h) = self.windows.get(&id) {
-                         !h.has_data()
-                     } else { false };
-
-                     if should_delete {
+                     // Existing chart error logic
+                     if let Some(h) = self.windows.get(&id) {
+                         if !h.has_data() {
+                             self.windows.remove(&id);
+                             self.chart_ids.retain(|(wid, _, _, _)| *wid != id);
+                             self.refresh_settings_window();
+                             self.save_config();
+                         }
+                     }
+                 } else {
+                     // Check pending
+                     let pending_id = self.pending_charts.iter()
+                         .find(|(_, s)| **s == symbol)
+                         .map(|(id, _)| *id);
+                     
+                     if let Some(id) = pending_id {
                          self.windows.remove(&id);
-                         self.chart_ids.retain(|(wid, _, _, _)| *wid != id);
-                         self.refresh_settings_window();
-                         self.save_config();
+                         self.pending_charts.remove(&id);
+                         // Don't refresh settings (wasn't in list)
+                         
+                         // Send IPC Error
+                         if let Some(tx) = &self.ipc_tx {
+                             let _ = tx.try_send(crate::ipc::IpcMessage::Error(localized_err));
+                         }
                      }
                  }
              },
@@ -345,8 +382,9 @@ impl ApplicationHandler<UserEvent> for App {
                  let chart = ChartWindow::new(event_loop, self.proxy.clone(), symbol.clone(), None, self.config.language);
                  let id = chart.window_id();
                  self.windows.insert(id, Box::new(chart));
-                 self.chart_ids.push((id, symbol, true, "1M".to_string()));
-                 self.refresh_settings_window();
+                 // Don't add to chart_ids yet, mark as pending
+                 self.pending_charts.insert(id, symbol);
+                 // self.refresh_settings_window(); // Only refresh when data is loaded
              },
              UserEvent::DeleteChart(id) => {
                  self.windows.remove(&id);
@@ -537,6 +575,20 @@ impl ApplicationHandler<UserEvent> for App {
                      },
                      _ => {}
                  }
+             },
+             UserEvent::IpcDisconnected => {
+                 self.ipc_tx = None;
+                 self.refresh_settings_window(); // Likely does nothing if ipc_tx is None, but cleaner
+                 
+                 // Lock all charts
+                 for entry in &mut self.chart_ids {
+                     entry.2 = true;
+                 }
+                 for handler in self.windows.values_mut() {
+                     handler.set_locked(true);
+                 }
+                 // If there's an internal settings ID (unused), clear it
+                 self.settings_id = None;
              }
          }
     }
@@ -577,6 +629,7 @@ fn main() {
         last_auto_refresh: std::time::Instant::now(),
         last_update_check: std::time::Instant::now(),
         ipc_tx: None,
+        pending_charts: HashMap::new(),
     };
     
     // Start IPC Server
@@ -640,6 +693,7 @@ fn main() {
                                  if let Some(msg) = res {
                                      let _ = proxy.send_event(UserEvent::IpcMessageReceived(msg));
                                  } else {
+                                     let _ = proxy.send_event(UserEvent::IpcDisconnected);
                                      break; 
                                  }
                              }

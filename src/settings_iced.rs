@@ -9,7 +9,7 @@ pub fn run() -> iced::Result {
     SettingsApp::run(Settings {
         window: iced::window::Settings {
             size: iced::Size::new(450.0, 650.0),
-            min_size: Some(iced::Size::new(450.0, 500.0)),
+            min_size: Some(iced::Size::new(450.0, 600.0)),
             ..iced::window::Settings::default()
         },
         ..Settings::default()
@@ -23,6 +23,7 @@ struct SettingsApp {
     
     // UI State
     input_value: String,
+    error_message: Option<String>,
     sender: Option<tokio::sync::mpsc::Sender<IpcMessage>>,
 }
 
@@ -86,6 +87,7 @@ impl Application for SettingsApp {
                 config: None,
                 update_status: String::from("Idle"),
                 input_value: String::new(),
+                error_message: None,
                 sender: None,
             },
             Command::none()
@@ -96,10 +98,15 @@ impl Application for SettingsApp {
         String::from("Desktop Widget Settings")
     }
 
+    fn theme(&self) -> Theme {
+        Theme::Dark
+    }
+
     fn update(&mut self, message: Message) -> Command<Message> {
         match message {
             Message::InputChanged(val) => {
                 self.input_value = val;
+                self.error_message = None; // Clear error on type
                 Command::none()
             }
             Message::AddPressed => {
@@ -169,6 +176,7 @@ impl Application for SettingsApp {
                     IpcMessage::Charts(charts) => self.charts = charts,
                     IpcMessage::Config(cfg) => self.config = Some(cfg),
                     IpcMessage::UpdateStatus(status) => self.update_status = status,
+                    IpcMessage::Error(err) => self.error_message = Some(err),
                     _ => {}
                 }
                 Command::none()
@@ -232,6 +240,11 @@ impl Application for SettingsApp {
             .padding(10);
 
         let controls = row![input, add_btn].spacing(10);
+        
+        let mut controls_column = column![controls];
+        if let Some(err) = &self.error_message {
+            controls_column = controls_column.push(text(err).style(iced::theme::Text::Color(iced::Color::from_rgb8(255, 100, 100))));
+        }
 
         let mut chart_list = column![].spacing(10);
         for chart in &self.charts {
@@ -286,7 +299,7 @@ impl Application for SettingsApp {
 
         let charts_section = column![
             text(language::get_text(lang_enum, TextId::Charts)).size(18),
-            controls,
+            controls_column.spacing(5),
             scrollable(chart_list).height(Length::Fill)
         ].spacing(10).height(Length::Fill);
 

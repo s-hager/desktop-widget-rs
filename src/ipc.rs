@@ -33,5 +33,6 @@ pub enum IpcMessage {
     CheckForUpdates,
     PerformUpdate,
     UpdateStatus(String),
+    Error(String),
     Shutdown, 
 }

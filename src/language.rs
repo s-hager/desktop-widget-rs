@@ -93,7 +93,7 @@ pub fn get_text(lang: Language, id: TextId) -> &'static str {
         },
         Language::De => match id {
             TextId::SettingsTitle => "Einstellungen",
-            TextId::AddButton => "Hinzu",
+            TextId::AddButton => "Hinzufügen",
             TextId::DeleteButton => "Lösch",
             TextId::AutoStartup => "Autostart:",
             TextId::UpdateInterval => "Aktualisierung (Min):",
