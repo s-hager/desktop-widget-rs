@@ -52,6 +52,7 @@ pub enum TextId {
     UpdateAvailableWithVersions, // "Update available: v{} -> v{}"
     UpdateSuccess,
     SymbolPlaceholder,
+    ShowPrereleases,
 }
 
 pub fn get_text(lang: Language, id: TextId) -> &'static str {
@@ -84,6 +85,7 @@ pub fn get_text(lang: Language, id: TextId) -> &'static str {
             TextId::SymbolPlaceholder => "Symbol (e.g. AAPL)",
             TextId::UpdateAvailableWithVersions => "Update available: v{} -> v{}",
             TextId::UpdateSuccess => "Update installed!",
+            TextId::ShowPrereleases => "Show Beta Releases",
         },
         Language::De => match id {
             TextId::SettingsTitle => "Einstellungen",
@@ -113,6 +115,7 @@ pub fn get_text(lang: Language, id: TextId) -> &'static str {
             TextId::SymbolPlaceholder => "Symbol (z.B. AAPL)",
             TextId::UpdateAvailableWithVersions => "Update verfügbar: v{} -> v{}",
             TextId::UpdateSuccess => "Update installiert!",
+            TextId::ShowPrereleases => "Beta-Versionen anzeigen",
         },
     }
 }

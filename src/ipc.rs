@@ -15,6 +15,7 @@ pub struct ConfigData {
     pub language: String,
     pub update_interval: u64,
     pub auto_start: bool,
+    pub use_prereleases: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -30,6 +31,7 @@ pub enum IpcMessage {
     SetLanguage(String),
     SetUpdateInterval(u64),
     SetAutoStart(bool),
+    SetUsePrereleases(bool),
     CheckForUpdates,
     PerformUpdate,
     UpdateStatus(crate::common::UpdateStatus),

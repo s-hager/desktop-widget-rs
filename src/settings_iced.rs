@@ -39,6 +39,7 @@ enum Message {
     LanguageChanged(Language),
     IntervalChanged(u64),
     AutoStartToggled(bool),
+    UsePrereleasesToggled(bool),
     
     // Updates
     CheckUpdates,
@@ -153,6 +154,13 @@ impl Application for SettingsApp {
                     cfg.auto_start = enabled;
                 }
                 self.send_ipc(IpcMessage::SetAutoStart(enabled));
+                Command::none()
+            }
+            Message::UsePrereleasesToggled(enabled) => {
+                if let Some(cfg) = &mut self.config {
+                    cfg.use_prereleases = enabled;
+                }
+                self.send_ipc(IpcMessage::SetUsePrereleases(enabled));
                 Command::none()
             }
             Message::CheckUpdates => {
@@ -353,10 +361,15 @@ impl Application for SettingsApp {
              );
         }
 
+        let prereleases_enabled = self.config.as_ref().map(|c| c.use_prereleases).unwrap_or(false);
+        let prereleases = checkbox(language::get_text(lang_enum, TextId::ShowPrereleases), prereleases_enabled)
+            .on_toggle(Message::UsePrereleasesToggled);
+
         let update_section = column![
             horizontal_rule(1),
             text(language::get_text(lang_enum, TextId::UpdateCheck)).size(18), 
-            update_row
+            update_row,
+            prereleases
         ].spacing(10);
 
         container(column![

@@ -87,6 +87,7 @@ impl App {
             language: self.config.language.as_str().to_string(), // Ensure Language has as_str
             update_interval: self.config.update_interval_minutes,
             auto_start,
+            use_prereleases: self.config.use_prereleases,
         };
         
         // Send to IPC if connected
@@ -114,6 +115,7 @@ impl App {
             charts,
             update_interval_minutes: self.config.update_interval_minutes,
             language: self.config.language,
+            use_prereleases: self.config.use_prereleases,
         };
         app_config.save();
     }
@@ -413,6 +415,11 @@ impl ApplicationHandler<UserEvent> for App {
                  self.last_auto_refresh = std::time::Instant::now(); // Reset timer on change
                  self.save_config();
              },
+             UserEvent::UsePrereleases(enabled) => {
+                 self.config.use_prereleases = enabled;
+                 self.save_config();
+                 self.refresh_settings_window(); 
+             },
              UserEvent::ChartTimeframe(id, timeframe) => {
                  if let Some(entry) = self.chart_ids.iter_mut().find(|(wid, _, _, _)| *wid == id) {
                      entry.3 = timeframe.clone();
@@ -463,8 +470,9 @@ impl ApplicationHandler<UserEvent> for App {
                      }
                  }
                  
+                 let use_prereleases = self.config.use_prereleases;
                  std::thread::spawn(move || {
-                     match updater::check_update() {
+                     match updater::check_update(use_prereleases) {
                          Ok(Some(release)) => {
                              let _ = proxy.send_event(UserEvent::UpdateStatus(UpdateStatus::Available(release.version)));
                          },
@@ -487,8 +495,9 @@ impl ApplicationHandler<UserEvent> for App {
                      }
                  }
 
+                 let use_prereleases = self.config.use_prereleases;
                  std::thread::spawn(move || {
-                     match updater::perform_update() {
+                     match updater::perform_update(use_prereleases) {
                          Ok(version) => {
                              let _ = proxy.send_event(UserEvent::UpdateStatus(UpdateStatus::Updated(version)));
                          },
@@ -556,6 +565,9 @@ impl ApplicationHandler<UserEvent> for App {
                      },
                      crate::ipc::IpcMessage::SetUpdateInterval(min) => {
                          let _ = self.proxy.send_event(UserEvent::UpdateInterval(min));
+                     },
+                     crate::ipc::IpcMessage::SetUsePrereleases(val) => {
+                         let _ = self.proxy.send_event(UserEvent::UsePrereleases(val));
                      },
                      crate::ipc::IpcMessage::SetAutoStart(enable) => {
                          let args: &[&str] = &[];

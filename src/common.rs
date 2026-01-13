@@ -27,6 +27,7 @@ pub enum UserEvent {
     OpenSettings,
     ToggleLock(WindowId, bool),
     UpdateInterval(u64),
+    UsePrereleases(bool),
     ChartTimeframe(WindowId, String),
     LanguageChanged(crate::language::Language),
     CheckForUpdates,
