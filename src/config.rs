@@ -63,9 +63,11 @@ impl AppConfig {
     fn load_from_path(path: &Path) -> Self {
          if let Ok(content) = fs::read_to_string(path) {
              if let Ok(config) = serde_json::from_str(&content) {
+                 log::info!("Loaded config from {:?}", path);
                  return config;
              }
          }
+         log::warn!("Failed to load config from {:?}, using defaults", path);
          AppConfig::default()
     }
 
@@ -92,7 +94,11 @@ impl AppConfig {
         } 
         
         if let Ok(content) = serde_json::to_string_pretty(self) {
-            let _ = fs::write(path, content);
+            if let Err(e) = fs::write(&path, content) {
+                log::error!("Failed to save config to {:?}: {}", path, e);
+            } else {
+                log::info!("Saved config to {:?}", path);
+            }
         }
     }
 }

@@ -65,7 +65,7 @@ pub fn perform_update(use_prereleases: bool) -> Result<String, Box<dyn Error>> {
             }
             
             let status = status_builder.build()?.update()?;
-            println!("Update status: `{}`!", status.version());
+            log::info!("Update status: `{}`!", status.version());
             return Ok(status.version().to_string());
          }
     }

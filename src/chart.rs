@@ -348,6 +348,8 @@ impl ChartWindow {
         
         let timeframe = self.timeframe.clone();
         
+        log::info!("Fetching data for {} ({})", symbol, timeframe);
+        
         std::thread::spawn(move || {
             let rt = tokio::runtime::Runtime::new().unwrap();
             rt.block_on(async {
@@ -413,6 +415,7 @@ impl ChartWindow {
                               }
                          },
                          Err(e) => {
+                             log::error!("Yahoo API Error for {}: {:?}", symbol, e);
                              let _ = proxy.send_event(UserEvent::Error(symbol, AppError::FetchError(e.to_string())));
                          }
                     }

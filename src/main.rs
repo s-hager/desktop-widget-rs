@@ -154,6 +154,8 @@ impl ApplicationHandler<UserEvent> for App {
              self.tray_icon = Some(tray_icon);
              self.tray_menu = Some(tray_menu);
 
+             log::info!("Tray icon and menu initialized");
+
              // Check for updates on startup
              let _ = self.proxy.send_event(UserEvent::CheckForUpdates);
         }
@@ -165,6 +167,7 @@ impl ApplicationHandler<UserEvent> for App {
                  let id = chart.window_id();
                  self.windows.insert(id, Box::new(chart));
                  self.chart_ids.push((id, "AAPL".to_string(), true, "1M".to_string()));
+                 log::info!("Created default initial chart for AAPL");
             } else {
                  for chart_cfg in &self.config.charts {
                      let chart = ChartWindow::new(event_loop, self.proxy.clone(), chart_cfg.symbol.clone(), Some(chart_cfg.clone()), self.config.language);
@@ -173,6 +176,7 @@ impl ApplicationHandler<UserEvent> for App {
                      let tf = chart_cfg.timeframe.clone().unwrap_or("1M".to_string());
                      self.chart_ids.push((id, chart_cfg.symbol.clone(), true, tf));
                  }
+                 log::info!("Restored {} charts from config", self.config.charts.len());
             }
          }
     }
@@ -202,6 +206,7 @@ impl ApplicationHandler<UserEvent> for App {
                 self.refresh_settings_window();
                 self.save_config();
             }
+            log::debug!("Window {:?} closed", window_id);
             return;
         }
         // Check for move/resize to trigger save
@@ -275,6 +280,7 @@ impl ApplicationHandler<UserEvent> for App {
              let id = event.id;
              if let Some(item) = &self.settings_item {
                  if id == item.id() {
+                     log::info!("Opening settings from tray menu");
                      let _ = self.proxy.send_event(UserEvent::OpenSettings);
                  }
              }
@@ -282,6 +288,7 @@ impl ApplicationHandler<UserEvent> for App {
                  if id == item.id() {
                      self.save_config(); 
                     if let Some(tx) = &self.ipc_tx {
+                        log::info!("Sending shutdown signal to IPC");
                         let _ = tx.try_send(crate::ipc::IpcMessage::Shutdown);
                         // Give a tiny yield to allow tokio scheduling (best effort)
                         // Actually we can't await here easily as we are in event loop handler.
@@ -299,6 +306,7 @@ impl ApplicationHandler<UserEvent> for App {
     }
     
     fn exiting(&mut self, _event_loop: &ActiveEventLoop) {
+        log::info!("Application exiting");
         self.save_config();
     }
     
@@ -342,7 +350,7 @@ impl ApplicationHandler<UserEvent> for App {
              },
              UserEvent::Error(symbol, app_error) => {
                  let localized_err = language::get_error_text(self.config.language, &app_error);
-                 eprintln!("Error fetching data for {}: {}", symbol, localized_err);
+                 log::error!("Error fetching data for {}: {}", symbol, localized_err);
                  
                  // Show error in Settings if open
                  if let Some(sid) = self.settings_id {
@@ -382,6 +390,7 @@ impl ApplicationHandler<UserEvent> for App {
                          if let Some(tx) = &self.ipc_tx {
                              let _ = tx.try_send(crate::ipc::IpcMessage::Error(localized_err));
                          }
+                         log::warn!("Removed pending chart {} due to error", symbol);
                      }
                  }
              },
@@ -390,7 +399,8 @@ impl ApplicationHandler<UserEvent> for App {
                  let id = chart.window_id();
                  self.windows.insert(id, Box::new(chart));
                  // Don't add to chart_ids yet, mark as pending
-                 self.pending_charts.insert(id, symbol);
+                 self.pending_charts.insert(id, symbol.clone());
+                 log::info!("Requested new chart for {}", symbol);
                  // self.refresh_settings_window(); // Only refresh when data is loaded
              },
              UserEvent::DeleteChart(id) => {
@@ -480,7 +490,7 @@ impl ApplicationHandler<UserEvent> for App {
                              let _ = proxy.send_event(UserEvent::UpdateStatus(UpdateStatus::UpToDate(env!("CARGO_PKG_VERSION").to_string())));
                          },
                          Err(e) => {
-                             println!("Check Update Error: {}", e);
+                             log::error!("Check Update Error: {}", e);
                              let _ = proxy.send_event(UserEvent::UpdateStatus(UpdateStatus::Error(e.to_string())));
                          }
                      }
@@ -502,7 +512,7 @@ impl ApplicationHandler<UserEvent> for App {
                              let _ = proxy.send_event(UserEvent::UpdateStatus(UpdateStatus::Updated(version)));
                          },
                          Err(e) => {
-                             println!("Perform Update Error: {}", e);
+                             log::error!("Perform Update Error: {}", e);
                              let _ = proxy.send_event(UserEvent::UpdateStatus(UpdateStatus::Error(e.to_string())));
                          }
                      }
@@ -516,7 +526,7 @@ impl ApplicationHandler<UserEvent> for App {
                  if let UpdateStatus::Available(ref version) = status {
                      if self.ipc_tx.is_none() {
                          if let Err(e) = updater::show_update_notification(version, AUM_ID, self.proxy.clone(), self.config.language) {
-                             eprintln!("Failed to show notification: {}", e);
+                             log::error!("Failed to show notification: {}", e);
                          }
                      }
                  }
@@ -610,11 +620,25 @@ impl ApplicationHandler<UserEvent> for App {
 }
 
 fn main() {
+    #[cfg(debug_assertions)]
+    {
+        env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("
+            debug,
+            wgpu_core=warn,
+            iced_wgpu=warn,
+            wgpu_hal=warn,
+            naga=warn,
+            cosmic_text=warn
+        "))
+            .init();
+        log::info!("Logger initialized (Debug Build)");
+    }
+
     // Check arguments for settings mode
     let args: Vec<String> = std::env::args().collect();
     if args.iter().any(|a| a == "--settings") {
         if let Err(e) = settings_iced::run() {
-            eprintln!("Settings Error: {}", e);
+            log::error!("Settings Error: {}", e);
         }
         return;
     }
@@ -624,7 +648,7 @@ fn main() {
 
     // Register AUMID in registry to make notifications work
     if let Err(e) = register_aumid(AUM_ID, "Desktop Widget", None) {
-        eprintln!("Failed to register AUMID: {:?}", e);
+        log::error!("Failed to register AUMID: {:?}", e);
     }
     
     let proxy = event_loop.create_proxy();
@@ -670,7 +694,7 @@ fn main() {
                  let server = match server {
                      Ok(s) => s,
                      Err(e) => {
-                         eprintln!("Failed to create pipe: {}", e);
+                         log::error!("Failed to create pipe: {}", e);
                          tokio::time::sleep(std::time::Duration::from_secs(1)).await;
                          continue;
                      }
