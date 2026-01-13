@@ -419,6 +419,13 @@ impl ApplicationHandler<UserEvent> for App {
                  self.save_config();
              },
              UserEvent::OpenSettings => {
+                 // Only spawn if not already connected
+                 if self.ipc_tx.is_some() {
+                     // Maybe bring to front if possible? 
+                     // For now just prevent duplicate spawn
+                     return;
+                 }
+
                  // Spawn settings process
                  if let Ok(exe_path) = std::env::current_exe() {
                      let _ = std::process::Command::new(exe_path)
@@ -488,20 +495,8 @@ impl ApplicationHandler<UserEvent> for App {
                  });
              },
              UserEvent::UpdateStatus(status) => {
-                 let status_str = match &status {
-                     UpdateStatus::Checking(_) => "Checking for updates...",
-                     UpdateStatus::Available(v) => return, // Notification logic handles this? 
-                     UpdateStatus::UpToDate(_) => "Up to date",
-                     UpdateStatus::Error(e) => return, // e string
-                     UpdateStatus::Updating => "Updating...",
-                     UpdateStatus::Updated(_) => "Updated!",
-                 };
-                 // We need to construct a better string or just pass the enum string if we implement Display/Serialize
-                 // For now let's just make a string
-                 let msg_str = format!("{:?}", status); // Lazy
-
                  if let Some(tx) = &self.ipc_tx {
-                     let _ = tx.try_send(crate::ipc::IpcMessage::UpdateStatus(msg_str));
+                     let _ = tx.try_send(crate::ipc::IpcMessage::UpdateStatus(status.clone()));
                  }
 
                  if let UpdateStatus::Available(ref version) = status {
@@ -572,6 +567,9 @@ impl ApplicationHandler<UserEvent> for App {
                      },
                      crate::ipc::IpcMessage::PerformUpdate => {
                          let _ = self.proxy.send_event(UserEvent::PerformUpdate);
+                     },
+                     crate::ipc::IpcMessage::Restart => {
+                         let _ = self.proxy.send_event(UserEvent::RestartApp);
                      },
                      _ => {}
                  }

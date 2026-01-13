@@ -21,12 +21,6 @@ impl Language {
         }
     }
 
-    pub fn next(&self) -> Self {
-        match self {
-            Language::En => Language::De,
-            Language::De => Language::En,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -36,7 +30,6 @@ pub enum TextId {
     DeleteButton,
     AutoStartup,
     UpdateInterval,
-    ActiveCharts,
     Quit,
     SettingsMenu,
     ErrorPrefix,
@@ -49,7 +42,6 @@ pub enum TextId {
     UpdateBtnNow,
     UpdateUpdating,
     UpdateRestart,
-    UpdateError,
     UpdateAvailable,
     UpdateBody, // Version {} is available.\nClick to open settings.
     General,
@@ -57,6 +49,8 @@ pub enum TextId {
     Language,
     Locked,
     Unlocked,
+    UpdateAvailableWithVersions, // "Update available: v{} -> v{}"
+    UpdateSuccess,
     SymbolPlaceholder,
 }
 
@@ -68,7 +62,6 @@ pub fn get_text(lang: Language, id: TextId) -> &'static str {
             TextId::DeleteButton => "Del",
             TextId::AutoStartup => "Auto Startup:",
             TextId::UpdateInterval => "Update Interval (min):",
-            TextId::ActiveCharts => "Active Charts:",
             TextId::Quit => "Quit",
             TextId::SettingsMenu => "Settings",
             TextId::ErrorPrefix => "Error:",
@@ -81,7 +74,6 @@ pub fn get_text(lang: Language, id: TextId) -> &'static str {
             TextId::UpdateBtnNow => "Update Now",
             TextId::UpdateUpdating => "Updating...",
             TextId::UpdateRestart => "Restart",
-            TextId::UpdateError => "Error!",
             TextId::UpdateAvailable => "Update Available",
             TextId::UpdateBody => "Version {} is available.\nClick to open settings.",
             TextId::General => "General",
@@ -90,6 +82,8 @@ pub fn get_text(lang: Language, id: TextId) -> &'static str {
             TextId::Locked => "Locked",
             TextId::Unlocked => "Unlocked",
             TextId::SymbolPlaceholder => "Symbol (e.g. AAPL)",
+            TextId::UpdateAvailableWithVersions => "Update available: v{} -> v{}",
+            TextId::UpdateSuccess => "Update installed!",
         },
         Language::De => match id {
             TextId::SettingsTitle => "Einstellungen",
@@ -97,7 +91,6 @@ pub fn get_text(lang: Language, id: TextId) -> &'static str {
             TextId::DeleteButton => "Lösch",
             TextId::AutoStartup => "Autostart:",
             TextId::UpdateInterval => "Aktualisierung (Min):",
-            TextId::ActiveCharts => "Aktive Charts:",
             TextId::Quit => "Beenden",
             TextId::SettingsMenu => "Einstellungen",
             TextId::ErrorPrefix => "Fehler:",
@@ -110,7 +103,6 @@ pub fn get_text(lang: Language, id: TextId) -> &'static str {
             TextId::UpdateBtnNow => "Jetzt Aktualisieren",
             TextId::UpdateUpdating => "Aktualisiere...",
             TextId::UpdateRestart => "Neustarten",
-            TextId::UpdateError => "Fehler!",
             TextId::UpdateAvailable => "Update verfügbar",
             TextId::UpdateBody => "Version {} ist verfügbar.\nKlicken Sie hier, um die Einstellungen zu öffnen.",
             TextId::General => "Allgemein",
@@ -119,6 +111,8 @@ pub fn get_text(lang: Language, id: TextId) -> &'static str {
             TextId::Locked => "Gesperrt",
             TextId::Unlocked => "Entsperrt",
             TextId::SymbolPlaceholder => "Symbol (z.B. AAPL)",
+            TextId::UpdateAvailableWithVersions => "Update verfügbar: v{} -> v{}",
+            TextId::UpdateSuccess => "Update installiert!",
         },
     }
 }

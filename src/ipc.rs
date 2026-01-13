@@ -32,7 +32,8 @@ pub enum IpcMessage {
     SetAutoStart(bool),
     CheckForUpdates,
     PerformUpdate,
-    UpdateStatus(String),
+    UpdateStatus(crate::common::UpdateStatus),
     Error(String),
+    Restart,
     Shutdown, 
 }

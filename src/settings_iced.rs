@@ -19,7 +19,7 @@ pub fn run() -> iced::Result {
 struct SettingsApp {
     charts: Vec<ChartData>,
     config: Option<ConfigData>,
-    update_status: String,
+    update_status: Option<crate::common::UpdateStatus>,
     
     // UI State
     input_value: String,
@@ -43,6 +43,7 @@ enum Message {
     // Updates
     CheckUpdates,
     PerformUpdate,
+    RestartApp,
 
     // IPC
     IpcConnected(tokio::sync::mpsc::Sender<IpcMessage>),
@@ -85,7 +86,7 @@ impl Application for SettingsApp {
             SettingsApp {
                 charts: Vec::new(),
                 config: None,
-                update_status: String::from("Idle"),
+                update_status: None, // Initial state unknown or idle
                 input_value: String::new(),
                 error_message: None,
                 sender: None,
@@ -155,13 +156,22 @@ impl Application for SettingsApp {
                 Command::none()
             }
             Message::CheckUpdates => {
-                self.update_status = "Sending check request...".to_string();
+                // Set explicit checking status immediately for UI feedback
+                self.update_status = Some(crate::common::UpdateStatus::Checking("".to_string()));
                 self.send_ipc(IpcMessage::CheckForUpdates);
                 Command::none()
             }
             Message::PerformUpdate => {
+                // Set immediate local feedback
+                self.update_status = Some(crate::common::UpdateStatus::Updating);
                 self.send_ipc(IpcMessage::PerformUpdate);
                 Command::none()
+            }
+            Message::RestartApp => {
+                self.send_ipc(IpcMessage::Restart);
+                // Also close this window/process
+                // Since this is the main window of the settings process, closing it exits the process.
+                iced::window::close(iced::window::Id::MAIN)
             }
             Message::IpcConnected(tx) => {
                 self.sender = Some(tx.clone());
@@ -175,7 +185,7 @@ impl Application for SettingsApp {
                 match msg {
                     IpcMessage::Charts(charts) => self.charts = charts,
                     IpcMessage::Config(cfg) => self.config = Some(cfg),
-                    IpcMessage::UpdateStatus(status) => self.update_status = status,
+                    IpcMessage::UpdateStatus(status) => self.update_status = Some(status),
                     IpcMessage::Error(err) => self.error_message = Some(err),
                     _ => {}
                 }
@@ -196,7 +206,8 @@ impl Application for SettingsApp {
         };
         let lang_enum: language::Language = current_lang.into();
 
-        let title = text(language::get_text(lang_enum, TextId::SettingsTitle)).size(24);
+        let title_str = language::get_text(lang_enum, TextId::SettingsTitle);
+        let title = text(title_str).size(24);
 
         // General Section
         let general_section = if let Some(config) = &self.config {
@@ -304,21 +315,45 @@ impl Application for SettingsApp {
         ].spacing(10).height(Length::Fill);
 
         // Updates Section
-        let update_text = if self.update_status == "Idle" {
-             // We can map this or leave it dynamic
-             String::from("")
-        } else {
-             self.update_status.clone()
+        let (status_text, show_update, show_restart) = match &self.update_status {
+            Some(crate::common::UpdateStatus::Checking(_)) => (language::get_text(lang_enum, TextId::UpdateChecking).to_string(), false, false),
+            Some(crate::common::UpdateStatus::Available(v)) => (language::get_text(lang_enum, TextId::UpdateAvailableWithVersions).replacen("{}", env!("CARGO_PKG_VERSION"), 1).replacen("{}", v, 1), true, false),
+            Some(crate::common::UpdateStatus::UpToDate(_)) => (format!("{} (v{})", language::get_text(lang_enum, TextId::UpdateUpToDate), env!("CARGO_PKG_VERSION")), false, false),
+            Some(crate::common::UpdateStatus::Error(e)) => (format!("{} {}", language::get_text(lang_enum, TextId::ErrorPrefix), e), false, false),
+            Some(crate::common::UpdateStatus::Updating) => (language::get_text(lang_enum, TextId::UpdateUpdating).to_string(), false, false),
+            Some(crate::common::UpdateStatus::Updated(v)) => (format!("v{} {} {}", v, language::get_text(lang_enum, TextId::UpdateSuccess), language::get_text(lang_enum, TextId::UpdateRestart)), false, true),
+            None => (format!("v{}", env!("CARGO_PKG_VERSION")), false, false),
         };
+
+        // Determine if "Check for Updates" should be visible
+        // Hide if updating, updated, or available (assuming one action at a time)
+        let show_check = !show_update && !show_restart && 
+                         !matches!(self.update_status, Some(crate::common::UpdateStatus::Updating));
+
+        let mut update_row = row![
+            text(status_text).width(Length::Fill),
+        ].spacing(10).align_items(Alignment::Center);
+
+        if show_check {
+             update_row = update_row.push(button(language::get_text(lang_enum, TextId::UpdateCheck)).on_press(Message::CheckUpdates));
+        }
+
+        if show_update {
+             update_row = update_row.push(
+                 button(language::get_text(lang_enum, TextId::UpdateBtnNow)).on_press(Message::PerformUpdate)
+             );
+        }
+        
+        if show_restart {
+             update_row = update_row.push(
+                 button(language::get_text(lang_enum, TextId::UpdateRestart)).on_press(Message::RestartApp)
+             );
+        }
 
         let update_section = column![
             horizontal_rule(1),
-            text(language::get_text(lang_enum, TextId::UpdateCheck)).size(18), // reuse title or make new
-            row![
-                text(update_text).width(Length::Fill),
-                button(language::get_text(lang_enum, TextId::UpdateCheck)).on_press(Message::CheckUpdates),
-                button(language::get_text(lang_enum, TextId::UpdateBtnNow)).on_press(Message::PerformUpdate)
-            ].spacing(10).align_items(Alignment::Center)
+            text(language::get_text(lang_enum, TextId::UpdateCheck)).size(18), 
+            update_row
         ].spacing(10);
 
         container(column![
