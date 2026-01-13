@@ -18,7 +18,8 @@ pub fn check_update(use_prereleases: bool) -> Result<Option<self_update::update:
                          || release.version.contains("-");
         
         if use_prereleases || !is_prerelease {
-             if self_update::version::bump_is_greater(cargo_crate_version!(), &release.version)? {
+             // Allow update if the versions are different (upgrade or downgrade)
+             if release.version != cargo_crate_version!() {
                 return Ok(Some(release));
              } else {
                  return Ok(None);
@@ -46,7 +47,8 @@ pub fn perform_update(use_prereleases: bool) -> Result<String, Box<dyn Error>> {
     });
 
     if let Some(release) = target_release {
-         if self_update::version::bump_is_greater(cargo_crate_version!(), &release.version)? {
+         // Allow update if the versions are different (upgrade or downgrade)
+         if release.version != cargo_crate_version!() {
              
              let mut status_builder = self_update::backends::github::Update::configure();
              status_builder
@@ -55,7 +57,7 @@ pub fn perform_update(use_prereleases: bool) -> Result<String, Box<dyn Error>> {
                 .bin_name("desktop-widget-rs")
                 .show_download_progress(true)
                 .current_version(cargo_crate_version!())
-                .target_version_tag(&release.version)
+                .target_version_tag(&format!("v{}", release.version))
                 .no_confirm(true);
 
             if let Ok(token) = std::env::var("GITHUB_TOKEN") {

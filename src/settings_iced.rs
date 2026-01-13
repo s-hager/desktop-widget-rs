@@ -338,8 +338,7 @@ impl Application for SettingsApp {
 
         // Determine if "Check for Updates" should be visible
         // Hide if updating, updated, or available (assuming one action at a time)
-        let show_check = !show_update && !show_restart && 
-                         !matches!(self.update_status, Some(crate::common::UpdateStatus::Updating));
+        let show_check = !matches!(self.update_status, Some(crate::common::UpdateStatus::Updating));
 
         let mut update_row = row![
             text(status_text).width(Length::Fill),
