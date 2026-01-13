@@ -279,7 +279,12 @@ impl ApplicationHandler<UserEvent> for App {
              if let Some(item) = &self.quit_item {
                  if id == item.id() {
                      self.save_config(); 
-                     event_loop.exit();
+                    if let Some(tx) = &self.ipc_tx {
+                        let _ = tx.try_send(crate::ipc::IpcMessage::Shutdown);
+                        // Give a tiny yield to allow tokio scheduling (best effort)
+                        // Actually we can't await here easily as we are in event loop handler.
+                    }
+                    event_loop.exit();
                  }
              }
          }

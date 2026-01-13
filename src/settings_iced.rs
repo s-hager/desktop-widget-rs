@@ -187,13 +187,16 @@ impl Application for SettingsApp {
                     IpcMessage::Config(cfg) => self.config = Some(cfg),
                     IpcMessage::UpdateStatus(status) => self.update_status = Some(status),
                     IpcMessage::Error(err) => self.error_message = Some(err),
+                    IpcMessage::Shutdown => {
+                        return iced::window::close(iced::window::Id::MAIN);
+                    },
                     _ => {}
                 }
                 Command::none()
             }
             Message::IpcClosed => {
                 self.sender = None;
-                Command::none()
+                iced::window::close(iced::window::Id::MAIN)
             }
         }
     }
